@@ -4,11 +4,11 @@
 
 # 🎣 AstrBot 钓鱼插件
 
-## 🚀 重大更新通知 🚀
+## 🚀 最新更新 🚀
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### ✨ **v2.4.0 骰宝游戏全面重构** ✨
+### 🎲 **v2.4.0 骰宝游戏全面重构**
 
 🎉 **重大版本更新！**
 
@@ -18,7 +18,7 @@
 🖼️ **图片化游戏界面** - 骰宝游戏全新图片化UI，美观直观的游戏体验  
 ⚙️ **灵活配置系统** - 支持倒计时设置、消息模式切换等管理员控制功能  
 
-**立即体验全新2.4.0版本，感受更丰富的游戏玩法！** 🎊
+**立即体验最新版本，感受更丰富的游戏玩法！** 🎊
 
 </div>
 
@@ -29,7 +29,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.4.2-brightgreen.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.4.2)
+[![Version](https://img.shields.io/badge/Version-2.4.4-brightgreen.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.4.4)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -105,14 +105,23 @@
  
 ## 📦 更新记录
 
+#### v2.4.4 (CJK字符显示修复)
+
+- **CJK字符显示修复** - 彻底解决称号中繁体中文、简体中文显示为方框的问题  
+- **智能字体回退** - 自动检测并使用CJK字体渲染不支持的字符  
+
+#### v2.4.3 (骰宝系统修复 + 中文数字输入支持 + 完整红包系统)
+
+- **🎲 修复骰宝系统隔离会话模式Bug**：修复了骰宝系统在"隔离会话"模式下无法多人游戏的问题
+- **📝 优化骰宝游戏文本描述**：改进了骰宝游戏的提示信息和帮助文档
+- **🔢 全面支持中文数字输入**：大部分功能现在都支持中文数字输入
+- **🧧 完整红包系统**：新增完整的红包社交互动功能
+
+*感谢 [@Akiyo-dayo](https://github.com/Akiyo-dayo) 的贡献 ([#103](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/103))*
+
 #### v2.4.2 (称号管理系统 + 文件名安全化 + CJK字体支持)
 
 - **🏆 完整称号管理系统**：新增完整的称号管理功能，支持创建、编辑、删除和授予称号
-  - 新增 `/授予称号 @用户 称号名称` 命令，管理员可通过命令授予用户称号
-  - 新增 `/移除称号 @用户 称号名称` 命令，管理员可通过命令移除用户称号
-  - 新增 `/创建称号 称号名称 描述 [显示格式]` 命令，管理员可创建自定义称号
-  - 新增称号管理Web界面，支持在后台管理界面中管理所有称号
-  - 用户详情页面现在显示用户拥有的所有称号列表
 - **🛡️ 文件名安全化处理**：新增文件名安全化功能，防止特殊字符导致文件系统问题
 - **🌏 CJK字体回退支持**：新增CJK字体回退机制，确保缺少的字符正确显示
 
@@ -128,17 +137,6 @@
 - **🎣 手动重置鱼池功能**：新增管理员手动重置所有钓鱼区域稀有鱼配额的功能
 
 *感谢 [@Akiyo-dayo](https://github.com/Akiyo-dayo) 的贡献 ([#90](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/90))*
-
-#### v2.3.13 (稀有鱼配额自动重置 + 钓鱼道具效果增强)
-
-- **🔄 稀有鱼每日配额自动重置**：新增自动重置机制，确保稀有鱼配额每日准时刷新
-- **🎣 钓鱼道具效果增强**：优化便携声纳等钓鱼道具的使用体验，支持立即执行钓鱼操作
-
-#### v2.3.12 (DingTalk平台At逻辑适配)
-
-- **🔧 修复DingTalk平台At逻辑**：在处理At列表时排除机器人自身ID，确保正确识别目标用户
-
-*感谢 [@k1ngr4m](https://github.com/k1ngr4m) 的贡献 ([#87](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/87))*
 
 
 > 📋 **完整更新历史请查看 [CHANGELOG.md](CHANGELOG.md)**
@@ -610,6 +608,11 @@
 | `/查看成就` | `/成就` | 查看我的成就进度 |
 | `/税收记录` | - | 查看我的税收记录 |
 | `/鱼类图鉴` | `/图鉴` | 查看已解锁的鱼类图鉴（支持显示鱼类图标） |
+| `/发红包 [金额] [数量] [类型] [口令]` | `/发放红包` | 发送红包（支持中文数字输入） |
+| `/领红包 [红包ID] [口令]` | `/抢红包`、`/拿红包`、`/取红包`、`/领取红包` | 领取红包（口令红包需要输入口令） |
+| `/红包列表` | `/红包`、`/查看红包列表` | 查看当前群聊的所有活跃红包 |
+| `/红包详情 [红包ID]` | `/查看红包` | 查看红包详细信息和领取记录 |
+| `/撤回红包 [红包ID]` | `/撤销红包`、`/取消红包` | 撤回自己发送的未领完红包 |
 
 ### ⚙️ 管理后台（管理员）
 
@@ -638,6 +641,7 @@
 | `/骰宝结算` | - | 跳过倒计时直接结算当前骰宝游戏（管理员） |
 | `/骰宝倒计时 [秒数]` | - | 设置骰宝游戏倒计时时间（管理员） |
 | `/骰宝模式 [image/text]` | - | 设置骰宝消息模式（图片/文本）（管理员） |
+| `/清理红包 [所有]` | - | 清理过期红包（不带参数清理当前群，带"所有"清理全局）（管理员） |
 
 ---
 
