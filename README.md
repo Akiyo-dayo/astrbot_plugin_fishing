@@ -11,17 +11,15 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### 🎲 **v2.4.0 骰宝游戏全面重构**
+### 🧧 **v2.4.8 拼手气红包算法优化**
 
-🎉 **重大版本更新！**
+🎉 **公平性重大升级！**
 
-🎲 **骰宝游戏全面重构** - 完全重写骰宝游戏系统，图片化UI、多会话支持、独立服务层  
-👤 **用户昵称系统** - 新增用户可自行更改昵称功能，个性化体验升级  
-🎣 **管理员鱼池管理** - 新增手动重置鱼池功能，方便管理员快速补充资源  
-🖼️ **图片化游戏界面** - 骰宝游戏全新图片化UI，美观直观的游戏体验  
-⚙️ **灵活配置系统** - 支持倒计时设置、消息模式切换等管理员控制功能  
+🧧 **拼手气红包算法优化** - 引入微信同款“二倍均值法”，金额分配更均衡  
+⚖️ **社交体验提升** - 解决“首领大半”问题，让群友抢红包更开心  
+🛠️ **系统稳定性增强** - 优化了极端情况下的金额计算逻辑  
 
-**立即体验最新版本，感受更丰富的游戏玩法！** 🎊
+**立即更新版本，享受更公平的修仙社交！** 🎊
 
 </div>
 
@@ -32,7 +30,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.4.7-brightgreen.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.4.7)
+[![Version](https://img.shields.io/badge/Version-2.4.8-brightgreen.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.4.8)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/xxlemon-io/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -107,6 +105,11 @@
 如果您有功能建议或发现问题，欢迎在 [Issues](https://github.com/xxlemon-io/astrbot_plugin_fishing/issues) 中提出！
  
 ## 📦 更新记录
+
+#### v2.4.8 (拼手气红包算法优化)
+
+- **🧧 拼手气红包算法优化**：引入微信同款“二倍均值法”，解决第一个人领走大部分金额的问题
+- **⚖️ 公平性提升**：确保红包金额分配更加均衡，提升玩家参与体验
 
 #### v2.4.7 (插件元数据规范化 + 命令文本优化 + 高稀有度鱼竿出售价格修复)
 
