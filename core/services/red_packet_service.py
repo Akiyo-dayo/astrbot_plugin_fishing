@@ -264,14 +264,16 @@ class RedPacketService:
             return packet.total_amount // packet.total_count
         
         elif packet.packet_type == 'lucky':
-            # 拼手气红包：随机分配
+            # 拼手气红包：二倍均值算法
             if packet.remaining_count == 1:
                 # 最后一个红包，把剩余的都给
                 return packet.remaining_amount
             
-            # 不是最后一个，随机分配
-            # 保证剩余的红包每个至少有1金币
-            max_amount = packet.remaining_amount - (packet.remaining_count - 1)
+            # 二倍均值法：每次随机的上限为 (剩余金额 / 剩余人数) * 2
+            # 这样能保证随机范围在平均值附近，不会让前面的人一下全抽走
+            avg = packet.remaining_amount / packet.remaining_count
+            max_amount = int(avg * 2) - 1
+            
             if max_amount < 1:
                 max_amount = 1
             
