@@ -332,5 +332,29 @@
         }
       }
     }
+  },
+  "loan": {
+    "description": "借贷系统配置",
+    "type": "object",
+    "items": {
+      "default_interest_rate": {
+        "type": "float",
+        "default": 0.05,
+        "description": "默认借贷利率（5%）",
+        "hint": "玩家之间借贷的默认利息率，可在Web管理界面中调整"
+      },
+      "system_loan_ratio": {
+        "type": "float",
+        "default": 0.10,
+        "description": "系统借款额度比例（10%）",
+        "hint": "系统借款额度 = 玩家历史最高金币 × 此比例"
+      },
+      "system_loan_days": {
+        "type": "int",
+        "default": 7,
+        "description": "系统借款还款期限（天）",
+        "hint": "超过此期限未还款将标记为逾期，并禁止参与骰宝和擦弹游戏"
+      }
+    }
   }
 }

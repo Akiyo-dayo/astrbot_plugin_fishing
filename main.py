@@ -20,6 +20,7 @@ from .core.repositories.sqlite_achievement_repo import SqliteAchievementReposito
 from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
 from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository # 新增交易所Repo
 from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository # 新增红包Repo
+from .core.repositories.sqlite_loan_repo import SqliteLoanRepository # 新增借贷Repo
 
 from .core.services.data_setup_service import DataSetupService
 from .core.services.item_template_service import ItemTemplateService
@@ -36,6 +37,7 @@ from .core.services.fishing_zone_service import FishingZoneService
 from .core.services.exchange_service import ExchangeService # 新增交易所Service
 from .core.services.sicbo_service import SicboService # 新增骰宝Service
 from .core.services.red_packet_service import RedPacketService # 新增红包Service
+from .core.services.loan_service import LoanService # 新增借贷Service
 
 from .core.database.migration import run_migrations
 
@@ -53,9 +55,11 @@ from .handlers import (
     aquarium_handlers, 
     sicbo_handlers,
     red_packet_handlers,
+    loan_handlers,
 )
 from .handlers.fishing_handlers import FishingHandlers
 from .handlers.exchange_handlers import ExchangeHandlers
+from .handlers.loan_handlers import LoanHandlers
 
 
 class FishingPlugin(Star):
@@ -108,6 +112,7 @@ class FishingPlugin(Star):
         user_config = config.get("user", {})
         market_config = config.get("market", {})
         sell_prices_config = config.get("sell_prices", {})
+        loan_config = config.get("loan", {})  # 新增借贷配置
         
         # 直接从框架获取 exchange 配置（不重建）
         exchange_config = config.get("exchange", {})
@@ -276,8 +281,21 @@ class FishingPlugin(Star):
         self.red_packet_repo = SqliteRedPacketRepository(db_path)
         self.red_packet_service = RedPacketService(self.red_packet_repo, self.user_repo)
         
+        # 初始化借贷服务
+        self.loan_repo = SqliteLoanRepository(db_path)
+        self.loan_service = LoanService(
+            self.loan_repo, 
+            self.user_repo,
+            default_interest_rate=loan_config.get("default_interest_rate", 0.05),
+            system_loan_ratio=loan_config.get("system_loan_ratio", 0.10),
+            system_loan_days=loan_config.get("system_loan_days", 7)
+        )
+        
         # 初始化交易所处理器
         self.exchange_handlers = ExchangeHandlers(self)
+        
+        # 初始化借贷处理器
+        self.loan_handlers = LoanHandlers(self.loan_service, self.user_service)
         
         #初始化钓鱼处理器
         self.fishing_handlers = FishingHandlers(self)
@@ -1266,6 +1284,51 @@ class FishingPlugin(Star):
     async def set_sicbo_mode(self, event: AstrMessageEvent):
         """[管理员] 设置骰宝消息模式（图片/文本）"""
         async for r in sicbo_handlers.set_sicbo_mode(self, event):
+            yield r
+
+    # ========== 借贷系统指令 ==========
+    
+    @filter.command(r"借[他她它]")
+    async def borrow_money(self, event: AstrMessageEvent):
+        """借钱给其他玩家。用法：借他@用户 金额"""
+        async for r in self.loan_handlers.handle_borrow_money(event, []):
+            yield r
+
+    @filter.command(r"还[他她它]")
+    async def repay_money(self, event: AstrMessageEvent):
+        """还钱给放贷人。用法：还他@用户 金额"""
+        async for r in self.loan_handlers.handle_repay_money(event, []):
+            yield r
+
+    @filter.command("还系统", alias={"还钱"})
+    async def repay_system(self, event: AstrMessageEvent):
+        """还系统借款。用法：还系统 金额 或 还钱 金额"""
+        async for r in self.loan_handlers.handle_repay_money(event, []):
+            yield r
+
+    @filter.command(r"收[他她它]")
+    async def force_collect(self, event: AstrMessageEvent):
+        """强制收款。用法：收他@用户 [金额]"""
+        async for r in self.loan_handlers.handle_force_collect(event, []):
+            yield r
+
+    @filter.command("借条", alias={"我的借条", "查看借条"})
+    async def view_loans(self, event: AstrMessageEvent):
+        """查看自己的借贷记录"""
+        async for r in self.loan_handlers.handle_view_loans(event, []):
+            yield r
+
+    @filter.permission_type(PermissionType.ADMIN)
+    @filter.command("所有借条")
+    async def view_all_loans(self, event: AstrMessageEvent):
+        """[管理员] 查看所有借条记录"""
+        async for r in self.loan_handlers.handle_view_all_loans(event, []):
+            yield r
+
+    @filter.command("系统借款", alias={"借钱", "应急借款"})
+    async def system_loan(self, event: AstrMessageEvent):
+        """向系统借款。用法：系统借款 [金额]"""
+        async for r in self.loan_handlers.handle_system_loan(event, []):
             yield r
 
     async def _check_port_active(self):

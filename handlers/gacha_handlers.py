@@ -284,6 +284,13 @@ async def gacha_history(self: "FishingPlugin", event: AstrMessageEvent):
 async def wipe_bomb(self: "FishingPlugin", event: AstrMessageEvent):
     """擦弹功能"""
     user_id = self._get_effective_user_id(event)
+    
+    # 检查是否有逾期借款
+    is_overdue, overdue_msg = self.loan_service.check_user_overdue_status(user_id)
+    if is_overdue:
+        yield event.plain_result(overdue_msg)
+        return
+    
     args = event.message_str.split(" ")
     if len(args) < 2:
         yield event.plain_result("💸 请指定要擦弹的数量 ID，例如：/擦弹 123456789")
