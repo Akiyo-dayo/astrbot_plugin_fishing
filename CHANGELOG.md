@@ -18,7 +18,7 @@
   - 将"批量出售鱼竿/饰品"统一改为"出售所有鱼竿/饰品"，使命令描述更清晰准确
   - 更新相关提示文本和帮助信息，保持文档一致性
   - 优化背包图片中的提示文本，与命令描述保持一致
-- **🐛 修复高稀有度鱼竿出售价格Bug**：解决 [#118](https://github.com/xxlemon-io/astrbot_plugin_fishing/issues/118) 中"七星包括级以上的鱼竿被出售时只会有30金币的返还"问题
+- **🐛 修复高稀有度鱼竿出售价格Bug**：解决 [#118](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues/118) 中"七星包括级以上的鱼竿被出售时只会有30金币的返还"问题
   - 添加6-10星基础价格配置（默认值：6星=20000, 7星=50000, 8星=100000, 9星=200000, 10星=500000）
   - 改进价格计算逻辑：当配置中缺少某个稀有度的价格时，使用基于稀有度的公式自动计算（`基础价 = 100 × (2.5 ^ (稀有度 - 1))`）
   - 确保高稀有度物品有合理的回收价格，不再直接返回30金币的默认值
@@ -28,7 +28,7 @@
 
 ## v2.4.6 (成就奖励发放修复)
 
-- **🐛 修复成就奖励发放导致数据库锁定问题**：尝试解决 [#114](https://github.com/xxlemon-io/astrbot_plugin_fishing/issues/114) 中"鸟枪换炮"成就发放奖励时导致数据库锁定的问题
+- **🐛 修复成就奖励发放导致数据库锁定问题**：尝试解决 [#114](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues/114) 中"鸟枪换炮"成就发放奖励时导致数据库锁定的问题
   - 添加奖励发放前的验证机制，在发放鱼饵、鱼竿、饰品等奖励前先检查物品ID是否存在
   - 避免外键约束失败导致的数据库锁定，提升系统稳定性
   - 即使奖励发放失败，成就仍会正常解锁，确保用户体验
@@ -37,7 +37,7 @@
 
 ## v2.4.5 (交易所利润税基修复)
 
-- **⚖️ 税收模型对齐真实交易逻辑**：交易所卖出、清仓、单品清仓现在仅针对正向盈利征税，彻底解决 [#109](https://github.com/xxlemon-io/astrbot_plugin_fishing/issues/109) 中“赚33w扣29w税”的离谱场景  
+- **⚖️ 税收模型对齐真实交易逻辑**：交易所卖出、清仓、单品清仓现在仅针对正向盈利征税，彻底解决 [#109](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues/109) 中“赚33w扣29w税”的离谱场景  
   - 税基统一为 `max(利润, 0)`，亏损或持平时自动免税，并在提示文案中明确显示“税基/毛收入/税率”  
   - `TaxRecord` 记录的 `original_amount` 改为保存可征税利润，方便后续审计  
   - 清仓报告与卖出提示补充“未盈利免税”说明，提升透明度
@@ -212,7 +212,7 @@
   - 详细的重置报告，显示每个区域的配额信息
   - 方便管理员在特殊情况下快速补充鱼池资源
 
-*感谢 [@Akiyo-dayo](https://github.com/Akiyo-dayo) 的贡献 ([#90](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/90))*
+*感谢 [@Akiyo-dayo](https://github.com/Akiyo-dayo) 的贡献 ([#90](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/90))*
 
 #### v2.3.13 (稀有鱼配额自动重置 + 钓鱼道具效果增强)
 
@@ -231,7 +231,7 @@
 
 - **🔧 修复DingTalk平台At逻辑**：在处理At列表时排除机器人自身ID，确保正确识别目标用户
 
-*感谢 [@k1ngr4m](https://github.com/k1ngr4m) 的贡献 ([#87](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/87))*
+*感谢 [@k1ngr4m](https://github.com/k1ngr4m) 的贡献 ([#87](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/87))*
 
 #### v2.3.11 (市场上架外键约束修复 + 税收线程管理优化)
 
@@ -240,7 +240,7 @@
 - **⚡ 提升系统健壮性**：即使MarketService初始化时MARKET用户创建失败，系统也能在需要时自动创建
 - **🧵 修复税收线程管理Bug**：插件卸载时正确停止税收线程，防止重复启动导致的多个税收线程并发问题
   
-*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#84](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/84))*
+*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#84](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/84))*
 
 #### v2.3.10 (市场耐久度保留机制)
 
@@ -279,7 +279,7 @@
 - **⏰ 自定义价格更新时间**：新增 `update_timing` 配置项，可自定义交易所每日价格更新的时间点
 - **📊 动态显示**：交易所帮助信息自动显示实际配置的更新时间
 
-*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#75](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/75))*
+*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#75](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/75))*
 
 #### v2.3.5 (交易所系统全面优化 + 商店系统品质支持 + 多次十连抽卡功能 + 转账功能)
 
@@ -302,21 +302,21 @@
 - **🛡️ 安全限制**：最多支持100次十连，防止单次操作过多
 - **💰 市场手续费政策调整**：市场下架商品时不再返还上架手续费，防止玩家通过频繁上架下架规避每日税收系统，维护游戏经济平衡
 
-*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#73](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/73), [#74](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/74)) 和 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#71](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/71))*
+*感谢 [@XiGuang](https://github.com/XiGuang) 的贡献 ([#73](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/73), [#74](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/74)) 和 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#71](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/71))*
 
 #### v2.3.4 (商店系统扣除修复)
 
 - **🛒 修复水族箱鱼类扣除Bug**：商店购买时正确扣除水族箱中的鱼类成本
 - **🔧 优化智能扣除逻辑**：支持按品质扣除鱼类，优先鱼塘后水族箱
 
-*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#70](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/70))*
+*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#70](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/70))*
 
 #### v2.3.3 (算法优化与保护增强)
 
 - **🎣 修复钓鱼算法Bug**：采用标准加权随机算法，修复旧算法的边界问题和异常行为
 - **🔒 批量出售保护**：出售鱼竿/饰品时自动跳过锁定装备，消息显示实际出售数量
 
-*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#69](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/69))*
+*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#69](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/69))*
 
 #### v2.3.2 (电鱼功能平衡优化与配置重构)
 
@@ -371,7 +371,7 @@
 - **⚡ 批量查询性能优化**：新增批量鱼类库存查询方法，提升性能
 - **🐛 修复OR条件资源检查问题**：确保多条件支付的准确性和原子性
 
-*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#57](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/57))*
+*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#57](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/57))*
 
 #### v2.2.1 (命运轮盘平衡调整)
 
@@ -390,7 +390,7 @@
 - **🔧 系统优化**：改进错误处理、代码可读性和用户体验
 - **📊 数据统计增强**：优化总价值计算和显示功能
 
-*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#47](https://github.com/xxlemon-io/astrbot_plugin_fishing/pull/47))*
+*感谢 [@WWWA7](https://github.com/WWWA7) 的贡献 ([#47](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/47))*
 
 #### v2.1.0 (交易所系统)
 

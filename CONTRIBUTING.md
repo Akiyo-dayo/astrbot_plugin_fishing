@@ -58,7 +58,7 @@
 
 ### 功能建议
 
-欢迎在 [Issues](https://github.com/xxlemon-io/astrbot_plugin_fishing/issues) 中提出新功能想法和改进建议。请详细描述：
+欢迎在 [Issues](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues) 中提出新功能想法和改进建议。请详细描述：
 - 功能需求
 - 使用场景
 - 预期效果
