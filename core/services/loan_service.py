@@ -29,6 +29,21 @@ class LoanService:
         self.system_loan_ratio = system_loan_ratio  # 系统借款比例（历史最高金币的10%）
         self.system_loan_days = system_loan_days  # 系统借款期限（天）
 
+    def _update_coins(self, user_id: str, amount: int) -> bool:
+        """更新用户金币的辅助方法"""
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            return False
+        user.coins += amount
+        if user.coins < 0:
+            user.coins = 0
+        try:
+            self.user_repo.update(user)
+            return True
+        except Exception as e:
+            logger.error(f"更新用户 {user_id} 金币失败: {e}")
+            return False
+
     def create_loan(
         self,
         lender_id: str,
@@ -49,7 +64,7 @@ class LoanService:
             return False, "❌ 借款金额必须大于0", None
 
         # 检查放贷人余额
-        lender = self.user_repo.get_user_by_id(lender_id)
+        lender = self.user_repo.get_by_id(lender_id)
         if not lender:
             return False, "❌ 放贷人账户不存在", None
         
@@ -57,7 +72,7 @@ class LoanService:
             return False, f"❌ 你的金币不足，当前余额：{lender.coins:,} 金币", None
 
         # 检查借款人账户是否存在
-        borrower = self.user_repo.get_user_by_id(borrower_id)
+        borrower = self.user_repo.get_by_id(borrower_id)
         if not borrower:
             return False, "❌ 借款人账户不存在", None
 
@@ -82,15 +97,15 @@ class LoanService:
 
         try:
             # 扣除放贷人金币
-            success = self.user_repo.update_user_coins(lender_id, -principal)
+            success = self._update_coins(lender_id, -principal)
             if not success:
                 return False, "❌ 扣除放贷人金币失败", None
 
             # 增加借款人金币
-            success = self.user_repo.update_user_coins(borrower_id, principal)
+            success = self._update_coins(borrower_id, principal)
             if not success:
                 # 回滚放贷人金币
-                self.user_repo.update_user_coins(lender_id, principal)
+                self._update_coins(lender_id, principal)
                 return False, "❌ 增加借款人金币失败", None
 
             # 保存借条
@@ -121,7 +136,7 @@ class LoanService:
             return False, "❌ 还款金额必须大于0"
 
         # 检查借款人余额
-        borrower = self.user_repo.get_user_by_id(borrower_id)
+        borrower = self.user_repo.get_by_id(borrower_id)
         if not borrower:
             return False, "❌ 借款人账户不存在"
         
@@ -178,16 +193,16 @@ class LoanService:
                     paid_off_loans.append(loan.loan_id)
 
             # 扣除借款人金币
-            success = self.user_repo.update_user_coins(borrower_id, -total_repaid)
+            success = self._update_coins(borrower_id, -total_repaid)
             if not success:
                 return False, "❌ 扣除借款人金币失败"
 
             # 增加放贷人金币（系统借款不增加）
             if lender_id != "SYSTEM":
-                success = self.user_repo.update_user_coins(lender_id, total_repaid)
+                success = self._update_coins(lender_id, total_repaid)
                 if not success:
                     # 回滚借款人金币
-                    self.user_repo.update_user_coins(borrower_id, total_repaid)
+                    self._update_coins(borrower_id, total_repaid)
                     return False, "❌ 增加放贷人金币失败"
 
             logger.info(f"还款成功: {borrower_id} -> {lender_id}, 金额: {total_repaid}")
@@ -245,7 +260,7 @@ class LoanService:
             collect_amount = min(amount, total_debt)
 
         # 检查借款人余额
-        borrower = self.user_repo.get_user_by_id(borrower_id)
+        borrower = self.user_repo.get_by_id(borrower_id)
         if not borrower:
             return False, "❌ 借款人账户不存在"
         
@@ -287,15 +302,15 @@ class LoanService:
                     paid_off_loans.append(loan.loan_id)
 
             # 扣除借款人金币
-            success = self.user_repo.update_user_coins(borrower_id, -total_collected)
+            success = self._update_coins(borrower_id, -total_collected)
             if not success:
                 return False, "❌ 扣除借款人金币失败"
 
             # 增加放贷人金币
-            success = self.user_repo.update_user_coins(lender_id, total_collected)
+            success = self._update_coins(lender_id, total_collected)
             if not success:
                 # 回滚借款人金币
-                self.user_repo.update_user_coins(borrower_id, total_collected)
+                self._update_coins(borrower_id, total_collected)
                 return False, "❌ 增加放贷人金币失败"
 
             logger.info(f"强制收款成功: {lender_id} <- {borrower_id}, 金额: {total_collected}")
@@ -423,7 +438,7 @@ class LoanService:
         返回: (成功标志, 消息, 借条对象)
         """
         # 检查借款人账户
-        borrower = self.user_repo.get_user_by_id(borrower_id)
+        borrower = self.user_repo.get_by_id(borrower_id)
         if not borrower:
             return False, "❌ 账户不存在", None
 
@@ -472,7 +487,7 @@ class LoanService:
 
         try:
             # 增加借款人金币
-            success = self.user_repo.update_user_coins(borrower_id, amount)
+            success = self._update_coins(borrower_id, amount)
             if not success:
                 return False, "❌ 系统借款失败：无法发放金币", None
 
