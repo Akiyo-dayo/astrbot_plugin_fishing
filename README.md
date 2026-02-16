@@ -4,9 +4,6 @@
 
 # 🎣 AstrBot 钓鱼插件
 
-## ⚠️ 通知
-目前由于本职工作繁忙，没有继续用Astrbot框架，暂停维护和更新本插件。
-
 ## 🚀 最新更新 🚀
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
