@@ -33,6 +33,8 @@ class SqliteLoanRepository:
         if not row:
             return None
         
+        row_keys = row.keys()
+        
         return Loan(
             loan_id=row["loan_id"],
             lender_id=row["lender_id"],
@@ -43,7 +45,7 @@ class SqliteLoanRepository:
             due_amount=row["due_amount"],
             repaid_amount=row["repaid_amount"],
             status=row["status"],
-            due_date=self._parse_datetime(row.get("due_date")) if row.get("due_date") else None,
+            due_date=self._parse_datetime(row["due_date"]) if "due_date" in row_keys and row["due_date"] else None,
             created_at=self._parse_datetime(row["created_at"]),
             updated_at=self._parse_datetime(row["updated_at"])
         )

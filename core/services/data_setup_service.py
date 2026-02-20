@@ -25,6 +25,7 @@ class DataSetupService:
         item_template_repo: AbstractItemTemplateRepository,
         gacha_repo: AbstractGachaRepository,
         shop_repo: AbstractShopRepository,
+        user_repo=None,
     ):
         """
         初始化数据设置服务。
@@ -33,16 +34,22 @@ class DataSetupService:
             item_template_repo: 物品模板仓储的实例，用于与数据库交互。
             gacha_repo: 抽卡仓储的实例。
             shop_repo: 商店仓储的实例。
+            user_repo: 用户仓储实例。
         """
         self.gacha_repo = gacha_repo
         self.item_template_repo = item_template_repo
         self.shop_repo = shop_repo
+        self.user_repo = user_repo
 
     def setup_initial_data(self):
         """
         检查核心数据表是否为空，如果为空则进行数据填充。
         这是一个幂等操作（idempotent），可以安全地多次调用而不会重复插入数据。
         """
+        # 确保系统虚拟用户存在
+        if self.user_repo:
+            self.ensure_system_user()
+
         try:
             existing_fish = self.item_template_repo.get_all_fish()
             if existing_fish:
@@ -338,4 +345,27 @@ class DataSetupService:
             logger.info("新道具添加完成。")
         else:
             logger.info("没有发现新的道具需要添加。")
+
+    def ensure_system_user(self):
+        """确保系统虚拟用户(SYSTEM)存在于用户表中，以满足外键约束"""
+        from ..domain.models import User
+        from datetime import datetime
+        
+        if not self.user_repo:
+            return
+
+        try:
+            if not self.user_repo.check_exists("SYSTEM"):
+                logger.info("正在创建系统虚拟用户(SYSTEM)...")
+                system_user = User(
+                    user_id="SYSTEM",
+                    nickname="系统银行",
+                    coins=0,
+                    created_at=datetime.now(),
+                    max_coins=0
+                )
+                self.user_repo.add(system_user)
+                logger.info("系统虚拟用户创建成功。")
+        except Exception as e:
+            logger.error(f"创建系统虚拟用户失败: {e}")
 

@@ -160,6 +160,12 @@ class LoanService:
         
         if loan.status != "pending":
             return False, f"❌ 该借条状态为 {loan.status}，无法确认"
+        
+        # 检查是否过期（24小时内有效）
+        if datetime.now() > loan.created_at + timedelta(hours=24):
+            # 更新为失效状态
+            self.loan_repo.update_loan_repayment(loan_id, 0, "cancelled")
+            return False, "❌ 该借款申请已超过24小时，已自动失效"
 
         try:
             with self.user_repo._get_connection() as conn:
@@ -671,6 +677,10 @@ class LoanService:
         
         返回: (是否逾期, 提示消息)
         """
+        # 排除系统用户
+        if user_id == "SYSTEM":
+            return False, ""
+
         # 获取用户的所有系统借款
         loans = self.loan_repo.get_loans_by_borrower(user_id)
         system_loans = [loan for loan in loans if loan.is_system_loan() and loan.status in ('active', 'overdue')]

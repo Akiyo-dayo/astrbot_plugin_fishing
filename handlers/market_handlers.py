@@ -825,13 +825,6 @@ async def list_any(
 async def buy_item(plugin: "FishingPlugin", event: AstrMessageEvent):
     """购买市场上的物品"""
     user_id = plugin._get_effective_user_id(event)
-    
-    # 检查是否有逾期借款
-    is_overdue, overdue_msg = plugin.loan_service.check_user_overdue_status(user_id)
-    if is_overdue:
-        yield event.plain_result(overdue_msg)
-        return
-    
     args = event.message_str.split(" ")
     if len(args) < 2:
         yield event.plain_result(

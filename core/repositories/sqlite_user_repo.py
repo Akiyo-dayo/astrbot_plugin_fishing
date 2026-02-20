@@ -177,7 +177,7 @@ class SqliteUserRepository(AbstractUserRepository):
             if order_by_column not in ["total_fishing_count", "coins", "total_weight_caught", "max_coins"]:
                 raise ValueError("Invalid order by column")
             
-            query = f"SELECT * FROM users ORDER BY {order_by_column} DESC LIMIT ?"
+            query = f"SELECT * FROM users WHERE user_id != 'SYSTEM' ORDER BY {order_by_column} DESC LIMIT ?"
             cursor.execute(query, (limit,))
             return [self._row_to_user(row) for row in cursor.fetchall()]
 

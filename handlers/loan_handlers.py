@@ -25,20 +25,25 @@ class LoanHandlers:
         """
         text = event.message_str
         
-        # 匹配借款格式：借他/借她/借它 @用户 金额
-        pattern = r"借[他她它]\s*@(\S+)\s+(.+)"
+        # 优化正则：支持更多变体，并适配可能存在的斜杠
+        pattern = r"借[他她它]\s*@?(\S+)\s+(.+)"
         match = re.search(pattern, text)
         
         if not match:
-            yield event.plain_result(
-                "❌ 格式错误！\n"
-                "💡 正确格式：借他@用户 金额\n"
-                "📝 示例：借她@张三 1000 或 借他@李四 一万"
-            )
-            return
-
-        target_user_str = match.group(1)
-        amount_str = match.group(2).strip()
+            # 兜底：尝试从 args 获取
+            if len(args) >= 2:
+                target_user_str = args[0]
+                amount_str = args[1]
+            else:
+                yield event.plain_result(
+                    "❌ 格式错误！\n"
+                    "💡 正确格式：借他@用户 金额\n"
+                    "📝 示例：借她@张三 1000 或 借他@李四 一万"
+                )
+                return
+        else:
+            target_user_str = match.group(1)
+            amount_str = match.group(2).strip()
 
         # 解析目标用户ID
         borrower_id, error = parse_target_user_id(event, [None, target_user_str], 1)
@@ -80,7 +85,7 @@ class LoanHandlers:
         text = event.message_str
         
         # 匹配格式1：还他/还她/还它 @用户 金额
-        pattern1 = r"还[他她它]\s*@(\S+)\s+(.+)"
+        pattern1 = r"还[他她它]\s*@?(\S+)\s+(.+)"
         match1 = re.search(pattern1, text)
         
         # 匹配格式2：还系统 金额 或 还钱 金额
@@ -108,13 +113,19 @@ class LoanHandlers:
             lender_id = "SYSTEM"
             amount_str = match2.group(1).strip()
         else:
-            yield event.plain_result(
-                "❌ 格式错误！\n"
-                "💡 玩家借款：还他@用户 金额\n"
-                "💡 系统借款：还系统 金额 或 还钱 金额\n"
-                "📝 示例：还她@张三 1000 或 还系统 五千"
-            )
-            return
+            # 兜底：尝试从 args 获取
+            if len(args) >= 2:
+                target_user_str = args[0]
+                amount_str = args[1]
+                lender_id, _ = parse_target_user_id(event, [None, target_user_str], 1)
+            else:
+                yield event.plain_result(
+                    "❌ 格式错误！\n"
+                    "💡 玩家借款：还他@用户 金额\n"
+                    "💡 系统借款：还系统 金额 或 还钱 金额\n"
+                    "📝 示例：还她@张三 1000 或 还系统 五千"
+                )
+                return
 
         # 解析金额
         try:
@@ -148,19 +159,24 @@ class LoanHandlers:
         text = event.message_str
         
         # 匹配收款格式：收他/收她/收它 @用户 [金额]
-        pattern = r"收[他她它]\s*@(\S+)(?:\s+(.+))?"
+        pattern = r"收[他她它]\s*@?(\S+)(?:\s+(.+))?"
         match = re.search(pattern, text)
         
         if not match:
-            yield event.plain_result(
-                "❌ 格式错误！\n"
-                "💡 正确格式：收他@用户 [金额]\n"
-                "📝 示例：收她@张三 或 收他@李四 1000"
-            )
-            return
-
-        target_user_str = match.group(1)
-        amount_str = match.group(2)
+            # 兜底：尝试从 args 获取
+            if len(args) >= 1:
+                target_user_str = args[0]
+                amount_str = args[1] if len(args) > 1 else None
+            else:
+                yield event.plain_result(
+                    "❌ 格式错误！\n"
+                    "💡 正确格式：收他@用户 [金额]\n"
+                    "📝 示例：收她@张三 或 收他@李四 1000"
+                )
+                return
+        else:
+            target_user_str = match.group(1)
+            amount_str = match.group(2)
 
         # 解析目标用户ID（借款人）
         borrower_id, error = parse_target_user_id(event, [None, target_user_str], 1)
