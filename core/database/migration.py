@@ -28,6 +28,7 @@ def run_migrations(db_path: str, migrations_dir: str):
     # 确保版本表存在
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL PRIMARY KEY)")
         cursor.execute("SELECT COUNT(*) FROM schema_version")
         if cursor.fetchone()[0] == 0:

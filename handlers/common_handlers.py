@@ -107,6 +107,12 @@ async def transfer_coins(self: "FishingPlugin", event: AstrMessageEvent):
     
     from_user_id = self._get_effective_user_id(event)
     
+    # 检查是否有逾期借款
+    is_overdue, overdue_msg = self.loan_service.check_user_overdue_status(from_user_id)
+    if is_overdue:
+        yield event.plain_result(overdue_msg)
+        return
+    
     # 调用转账服务
     result = self.user_service.transfer_coins(from_user_id, target_user_id, amount)
     yield event.plain_result(result["message"])

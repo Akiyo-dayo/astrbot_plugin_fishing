@@ -80,7 +80,7 @@ class FishingPlugin(Star):
         self.area3num = config.get("area3num", 500)
         
         # 插件ID
-        self.plugin_id = "astrbot_plugin_fishing"
+        self.plugin_id = "astrbot_plugin_fishing_again"
 
         # --- 1.1. 数据与临时文件路径管理 ---
         try:
@@ -1286,15 +1286,13 @@ class FishingPlugin(Star):
         async for r in sicbo_handlers.set_sicbo_mode(self, event):
             yield r
 
-    # ========== 借贷系统指令 ==========
-    
-    @filter.command(r"借[他她它]")
+    @filter.regex(r"^借[他她它]")
     async def borrow_money(self, event: AstrMessageEvent):
         """借钱给其他玩家。用法：借他@用户 金额"""
         async for r in self.loan_handlers.handle_borrow_money(event, []):
             yield r
 
-    @filter.command(r"还[他她它]")
+    @filter.regex(r"^还[他她它]")
     async def repay_money(self, event: AstrMessageEvent):
         """还钱给放贷人。用法：还他@用户 金额"""
         async for r in self.loan_handlers.handle_repay_money(event, []):
@@ -1306,10 +1304,22 @@ class FishingPlugin(Star):
         async for r in self.loan_handlers.handle_repay_money(event, []):
             yield r
 
-    @filter.command(r"收[他她它]")
+    @filter.regex(r"^收[他她它]")
     async def force_collect(self, event: AstrMessageEvent):
         """强制收款。用法：收他@用户 [金额]"""
         async for r in self.loan_handlers.handle_force_collect(event, []):
+            yield r
+
+    @filter.command("确认借款")
+    async def confirm_loan(self, event: AstrMessageEvent):
+        """确认别人发起的借款申请。用法：确认借款 #借条ID"""
+        async for r in self.loan_handlers.handle_confirm_loan(event, []):
+            yield r
+
+    @filter.command("一键还债", alias={"全部还清", "一键还清"})
+    async def repay_all_loans(self, event: AstrMessageEvent):
+        """一键偿还所有债务。优先系统，其次高利率。"""
+        async for r in self.loan_handlers.handle_repay_all(event, []):
             yield r
 
     @filter.command("借条", alias={"我的借条", "查看借条"})

@@ -8,6 +8,17 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
+### ⚖️ **v2.4.91 借贷系统安全升级 & 数据库调优**
+
+🎉 **更加安全、高效、智能！**
+
+⚖️ **借款确认制** - 采用 Handshake 机制，借款人确认后才触发转账，拒绝强制借贷。
+💸 **一键还债** - 新增 `一键还债` 指令，智能算法优先偿还高息债务。
+⚡ **极速体验** - 开启数据库 WAL 模式并引入原子事务，告别 `database is locked`。
+📋 **商店规范化** - 全面适配 AstrBot 插件商店审核标准，规范元数据。
+
+---
+
 ### 💰 **v2.4.9 借贷系统重磅上线**
 
 🎉 **全新经济玩法！**
@@ -29,7 +40,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.4.9-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.4.9)
+[![Version](https://img.shields.io/badge/Version-2.4.91-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.4.91)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点

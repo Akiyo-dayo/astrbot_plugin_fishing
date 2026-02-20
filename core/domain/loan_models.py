@@ -18,7 +18,7 @@ class Loan:
     borrowed_at: Optional[datetime] = None  # 借款时间
     due_amount: int = 0  # 应还金额（本金+利息）
     repaid_amount: int = 0  # 已还金额
-    status: str = "active"  # 状态: active(进行中), paid(已还清), overdue(逾期)
+    status: str = "active"  # 状态: active(进行中), paid(已还清), overdue(逾期), pending(待确认)
     due_date: Optional[datetime] = None  # 还款期限（系统借款专用）
     created_at: Optional[datetime] = None  # 创建时间
     updated_at: Optional[datetime] = None  # 更新时间

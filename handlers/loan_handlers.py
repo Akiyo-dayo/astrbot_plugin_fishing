@@ -41,11 +41,10 @@ class LoanHandlers:
         amount_str = match.group(2).strip()
 
         # 解析目标用户ID
-        borrower_id = parse_target_user_id(event, target_user_str)
+        borrower_id, error = parse_target_user_id(event, [None, target_user_str], 1)
         if not borrower_id:
             yield event.plain_result(
-                "❌ 无法识别借款人\n"
-                "💡 请使用 @用户 或 QQ号"
+                f"❌ 无法识别借款人: {error or '请使用 @用户 或 QQ号'}"
             )
             return
 
@@ -97,11 +96,10 @@ class LoanHandlers:
             if target_user_str.upper() == "SYSTEM" or target_user_str == "系统":
                 lender_id = "SYSTEM"
             else:
-                lender_id = parse_target_user_id(event, target_user_str)
+                lender_id, error = parse_target_user_id(event, [None, target_user_str], 1)
                 if not lender_id:
                     yield event.plain_result(
-                        "❌ 无法识别放贷人\n"
-                        "💡 请使用 @用户 或 QQ号\n"
+                        f"❌ 无法识别放贷人: {error or '请使用 @用户 或 QQ号'}\n"
                         "💡 还系统借款请用：还系统 金额"
                     )
                     return
@@ -165,11 +163,10 @@ class LoanHandlers:
         amount_str = match.group(2)
 
         # 解析目标用户ID（借款人）
-        borrower_id = parse_target_user_id(event, target_user_str)
+        borrower_id, error = parse_target_user_id(event, [None, target_user_str], 1)
         if not borrower_id:
             yield event.plain_result(
-                "❌ 无法识别借款人\n"
-                "💡 请使用 @用户 或 QQ号"
+                f"❌ 无法识别借款人: {error or '请使用 @用户 或 QQ号'}"
             )
             return
 
@@ -249,4 +246,33 @@ class LoanHandlers:
 
         # 向系统借款
         success, message, loan = self.loan_service.borrow_from_system(borrower_id, amount)
+        yield event.plain_result(message)
+
+    async def handle_confirm_loan(self, event: AstrMessageEvent, args: list):
+        """
+        确认借款申请
+        格式：确认借款 #ID 或 确认借款 ID
+        """
+        text = event.message_str
+        user_id = event.get_sender_id()
+
+        # 匹配ID
+        match = re.search(r"确认借款\s*(?:#)?(\d+)", text)
+        if not match:
+            yield event.plain_result("❌ 格式错误！请输入：确认借款 #ID")
+            return
+
+        loan_id = int(match.group(1))
+
+        # 执行确认
+        success, message = self.loan_service.confirm_loan(loan_id, user_id)
+        yield event.plain_result(message)
+
+    async def handle_repay_all(self, event: AstrMessageEvent, args: list):
+        """
+        一键还清所有借条
+        格式：一键还债 或 全部还清
+        """
+        user_id = event.get_sender_id()
+        success, message = self.loan_service.repay_all_loans(user_id)
         yield event.plain_result(message)
