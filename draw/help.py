@@ -248,6 +248,17 @@ def draw_help_image():
         ("同步初始设定", "危！从初始数据文件\n同步数据"),
     ]
 
+    loan = [
+        ("借[他/她/它][@用户] [金额]", "向指定用户\n发起借款申请"),
+        ("还[他/她/它][@用户] [金额]", "向放贷人\n进行还款"),
+        ("收[他/她/它][@用户] [金额]", "强制向指定用户\n收款"),
+        ("确认借款 [借条ID]", "确认他人发起的\n借款申请"),
+        ("系统借款 [金额]", "向系统借款\n别名：借钱 / 应急借款"),
+        ("还系统 [金额]", "偿还系统借款\n别名：还钱"),
+        ("一键还债", "偿还全部债务\n别名：全部还清 / 一键还清"),
+        ("借条", "查看自己的借贷记录\n别名：我的借条 / 查看借条"),
+    ]
+
     # 10. 先计算自适应高度
     def section_delta(item_count: int, cols: int) -> int:
         rows = math.ceil(item_count / cols) if item_count > 0 else 0
@@ -266,6 +277,7 @@ def draw_help_image():
     y0_est += section_delta(len(social), 2)
     y0_est += section_delta(len(exchange), 2)
     y0_est += section_delta(len(admin), 2)
+    y0_est += section_delta(len(loan), 2)
     footer_y_est = y0_est + 20
     final_height = footer_y_est + 30
 
@@ -309,6 +321,7 @@ def draw_help_image():
     y0 = draw_section("👥 社交功能", social, y0, cols=2)
     y0 = draw_section("📈 大宗商品交易所", exchange, y0, cols=2)
     y0 = draw_section("⚙️ 管理后台（管理员）", admin, y0, cols=2)
+    y0 = draw_section("💵 借贷系统", loan, y0, cols=2)
 
     # 添加底部信息
     footer_y = y0 + 20
