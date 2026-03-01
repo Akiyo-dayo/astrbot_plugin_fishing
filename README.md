@@ -8,6 +8,14 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
+### 📘 **v2.4.93 帮助菜单补全：借贷系统入口**
+
+💡 **帮助体验完善**
+
+- 新增“💵 借贷系统”帮助分区，统一展示借款、还款、收款、确认借款、系统借款、一键还债、借条等指令。
+- 感谢 [@LovelyToaster](https://github.com/LovelyToaster) 的贡献 ([#3](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/3))
+
+---
 ### ⚖️ **v2.4.92 借贷系统安全升级 & 数据库调优**
 
 🎉 **更加安全、高效、智能！**
@@ -16,8 +24,6 @@
 💸 **一键还债** - 新增 `一键还债` 指令，智能算法优先偿还高息债务。
 ⚡ **极速体验** - 开启数据库 WAL 模式并引入原子事务，告别 `database is locked`。
 📋 **商店规范化** - 全面适配 AstrBot 插件商店审核标准，规范元数据。
-
----
 
 ### 💰 **v2.4.9 借贷系统重磅上线**
 
@@ -40,7 +46,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.4.92-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.4.92)
+[![Version](https://img.shields.io/badge/Version-2.4.93-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.4.93)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -116,6 +122,14 @@
 
 ## 📦 更新记录
 
+#### 📘 **v2.4.93 帮助菜单补全：借贷系统入口**
+
+💡 **帮助体验完善**
+
+- 新增“💵 借贷系统”帮助分区，统一展示借款、还款、收款、确认借款、系统借款、一键还债、借条等指令。
+- 感谢 [@LovelyToaster](https://github.com/LovelyToaster) 的贡献 ([#3](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/3))
+
+---
 #### v2.4.9 (借贷系统 - 玩家间借款 + 系统借款 + 逾期惩罚)
 
 - **💰 新增借贷系统**：全新玩家间借款和系统借款功能
@@ -736,6 +750,8 @@
 - 提交信息使用清晰的中文描述
 
 ### 🏆 贡献者
+
+特别感谢 PR #3 贡献者 [@LovelyToaster](https://github.com/LovelyToaster)。
 
 感谢所有为这个项目做出贡献的开发者们！
 
