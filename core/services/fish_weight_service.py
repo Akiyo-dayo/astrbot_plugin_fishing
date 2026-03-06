@@ -63,9 +63,7 @@ class FishWeightService:
             # 获取字典里最老的那个 Key（即排在字典最开头的元素）
             oldest_key = next(iter(self.weight_cache))
             # 无情抹杀
-            del self.weight_cache[oldest_key]
-        
-        logger.debug(f"计算权重: coins_chance={coins_chance:.2f}, base_ev={base_ev:.2f}, target_ev={target_ev:.2f}, weights={final_weights}")    
+            del self.weight_cache[oldest_key]  
 
         return final_weights
 
@@ -77,4 +75,5 @@ class FishWeightService:
             return new_fish_list[0]
 
         weights = self.get_weights(new_fish_list, coins_chance)
+        logger.debug(f"根据 coins_chance={coins_chance} 计算得到的权重列表: {weights}")
         return random.choices(new_fish_list, weights=weights, k=1)[0]

@@ -188,7 +188,7 @@ class FishingService:
                 quality_modifier *= calculate_after_refine(acc_template.bonus_fish_quality_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
                 quantity_modifier *= calculate_after_refine(acc_template.bonus_fish_quantity_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
                 rare_chance += calculate_after_refine(acc_template.bonus_rare_fish_chance, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
-                coins_chance += calculate_after_refine(acc_template.bonus_coin_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
+                coins_chance += calculate_after_refine(acc_template.bonus_coin_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity) - 1
         logger.debug(f"装备饰品加成后： quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}")
         # 获取鱼饵并应用加成
         cur_bait_id = user.current_bait_id
@@ -259,7 +259,7 @@ class FishingService:
                 rare_chance += bait_template.rare_chance_modifier
                 base_success_rate += bait_template.success_rate_modifier
                 garbage_reduction_modifier = bait_template.garbage_reduction_modifier
-                coins_chance += bait_template.value_modifier
+                coins_chance += bait_template.value_modifier - 1
         logger.debug(f"使用鱼饵加成后： base_success_rate={base_success_rate}, quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}")
         # 3. 判断是否成功钓到
         if random.random() >= base_success_rate:
