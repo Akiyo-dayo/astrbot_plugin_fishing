@@ -8,14 +8,15 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### 🔧 **v2.4.94 借贷系统关键修复**
+### 🔧 **v2.5.0 钓鱼权重算法重构**
 
-🛡️ **稳定性与数据安全提升！**
+🎯 **核心算法修复与优化！**
 
-🔴 **致命崩溃修复** - 修复 TIMESTAMP 列解析崩溃，恢复转账/擦弹/金币查询等命令正常运行  
-🔴 **事务安全加固** - 强制收款、系统借款全面封装为原子事务，杜绝中途崩溃导致的数据不一致  
-🟡 **逾期借条可见** - 修复逾期借条在汇总/列表/总债务中消失的问题  
-🟡 **并发安全** - 金币操作改用原子 SQL，消除竞态覆盖风险  
+🔴 **概率修复** - 修复 `coins_chance` 等比放大导致归一化后概率实际不变的数学问题  
+🔴 **爆率修正** - 修复同星级内"越贵越容易出"的基础概率倒挂问题  
+✨ **EV 拟合算法** - 引入二分查找期望价值拟合，装备加成精确反映在收益期望上  
+⚡ **性能优化** - 新增 OrderedDict 内存缓存 + 线程锁，权重计算降至亚毫秒级  
+🔧 **鱼饵续装** - 修复限时鱼饵无法同类续装的问题，增加随机兜底逻辑  
 
 
 </div>
@@ -27,7 +28,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.4.94-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.4.94)
+[![Version](https://img.shields.io/badge/Version-2.5.0-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.5.0)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -103,6 +104,16 @@
 
 ## 📦 更新记录
 
+#### 🔧 **v2.5.0 钓鱼权重算法重构 - 概率修复 + EV拟合 + 缓存优化**
+
+- 🔴 修复 `coins_chance` 等比放大所有权重导致概率实际不变的核心数学问题
+- 🔴 修复同星级内基础概率倒挂（越贵越容易出）的问题
+- ✨ 新增 `FishWeightService`，引入二分查找 EV 拟合算法精确控制收益期望
+- ⚡ 新增 `OrderedDict` 内存缓存 + 线程锁，支持 LRU 淘汰策略
+- 🔧 修复限时鱼饵无法同类续装的问题，增加随机兜底逻辑
+- 感谢 [@xxh16384](https://github.com/xxh16384) 的贡献 ([#6](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/6))
+
+---
 #### 🔧 **v2.4.94 借贷系统关键修复 - TIMESTAMP 崩溃 + 事务安全 + 数据一致性**
 
 - 🔴 修复 TIMESTAMP 列解析导致的致命崩溃（转账/擦弹/金币查询）
@@ -739,8 +750,6 @@
 - 提交信息使用清晰的中文描述
 
 ### 🏆 贡献者
-
-特别感谢 PR #3 贡献者 [@LovelyToaster](https://github.com/LovelyToaster)。
 
 感谢所有为这个项目做出贡献的开发者们！
 
