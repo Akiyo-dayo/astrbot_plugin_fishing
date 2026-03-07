@@ -1,11 +1,13 @@
 import random
+import threading
 from astrbot.api import logger
 
 class FishWeightService:
     """处理鱼类权重计算与期望价值拟合的服务"""
     def __init__(self, max_cache_size=1000):
         self.weight_cache = {}
-        self.max_cache_size = max_cache_size # 新增：设定最大缓存条目数
+        self.max_cache_size = max_cache_size # 设定最大缓存条目数
+        self._cache_lock = threading.Lock() # 新增：缓存读写互斥锁
 
     def _calculate_ev(self, fish_list, weights):
         total_weight = sum(weights)
@@ -14,26 +16,29 @@ class FishWeightService:
         return sum(f.base_value * w for f, w in zip(fish_list, weights)) / total_weight
 
     def get_weights(self, fish_list, coins_chance):
-        cache_key = (tuple(f.fish_id for f in fish_list), round(coins_chance, 6))
-        if cache_key in self.weight_cache:
-            # 把它弹出来再重新塞进去，它就会自动跑到字典的最末尾（也就是“最新鲜”的位置）
-            weights = self.weight_cache.pop(cache_key)
-            self.weight_cache[cache_key] = weights
-            return weights
+        cache_key = (tuple((f.fish_id, f.base_value) for f in fish_list), round(coins_chance, 6)) # 加入基础价值作为key的一部分
+        with self._cache_lock:
+            if cache_key in self.weight_cache:
+                # 把它弹出来再重新塞进去，它就会自动跑到字典的最末尾（也就是“最新鲜”的位置）
+                weights = self.weight_cache.pop(cache_key)
+                self.weight_cache[cache_key] = weights
+                return weights
 
         base_weights = [1.0 for _ in fish_list] 
         base_ev = self._calculate_ev(fish_list, base_weights)
         target_ev = base_ev + abs(base_ev) * coins_chance # 修正负数期望的边界条件
         safe_base_ev = max(abs(base_ev), 1.0) # 修正价值为0物品的边界条件
         max_value = max(f.base_value for f in fish_list)
+        min_value = min(f.base_value for f in fish_list) # 新增：找到池子里最便宜的鱼
 
         if target_ev >= max_value:
             final_weights = [1.0 if f.base_value == max_value else 0.0 for f in fish_list]
+        elif target_ev <= min_value: # 新增：期望下界保护
+            return [1.0 if f.base_value == min_value else 0.0 for f in fish_list]
         else:
-            low, high = 0.0, 10.0
+            low, high = -50.0, 50.0 # 修改：扩大搜索范围
             final_weights = base_weights
-            i = 0
-            for _ in range(50):
+            for _ in range(80):
                 mid = (low + high) / 2.0
                 try:
                     # 3. 核心底数保护：max(f.base_value, 1)
@@ -59,11 +64,14 @@ class FishWeightService:
         self.weight_cache[cache_key] = final_weights
         
         # 核心淘汰逻辑：如果塞入后超过了设定的最大容量
-        if len(self.weight_cache) > self.max_cache_size:
-            # 获取字典里最老的那个 Key（即排在字典最开头的元素）
-            oldest_key = next(iter(self.weight_cache))
-            # 无情抹杀
-            del self.weight_cache[oldest_key]  
+        with self._cache_lock:
+            if len(self.weight_cache) > self.max_cache_size:
+                # 防止在当前线程计算期间，另一个线程已经把这个 Key 算好并塞进去了
+                if cache_key not in self.weight_cache:
+                    self.weight_cache[cache_key] = final_weights
+                    if len(self.weight_cache) > self.max_cache_size:
+                        oldest_key = next(iter(self.weight_cache))
+                        del self.weight_cache[oldest_key]
 
         return final_weights
 
