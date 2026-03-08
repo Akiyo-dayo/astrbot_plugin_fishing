@@ -18,9 +18,9 @@ from .core.repositories.sqlite_shop_repo import SqliteShopRepository
 from .core.repositories.sqlite_log_repo import SqliteLogRepository
 from .core.repositories.sqlite_achievement_repo import SqliteAchievementRepository
 from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
-from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository # 新增交易所Repo
-from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository # 新增红包Repo
-from .core.repositories.sqlite_loan_repo import SqliteLoanRepository # 新增借贷Repo
+from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository
+from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository
+from .core.repositories.sqlite_loan_repo import SqliteLoanRepository
 
 from .core.services.data_setup_service import DataSetupService
 from .core.services.item_template_service import ItemTemplateService
@@ -34,10 +34,11 @@ from .core.services.achievement_service import AchievementService
 from .core.services.game_mechanics_service import GameMechanicsService
 from .core.services.effect_manager import EffectManager
 from .core.services.fishing_zone_service import FishingZoneService
-from .core.services.exchange_service import ExchangeService # 新增交易所Service
-from .core.services.sicbo_service import SicboService # 新增骰宝Service
-from .core.services.red_packet_service import RedPacketService # 新增红包Service
-from .core.services.loan_service import LoanService # 新增借贷Service
+from .core.services.exchange_service import ExchangeService
+from .core.services.sicbo_service import SicboService
+from .core.services.red_packet_service import RedPacketService
+from .core.services.loan_service import LoanService
+from .core.services.fish_weight_service import FishWeightService # 新增钓鱼权重Service
 
 from .core.database.migration import run_migrations
 
@@ -250,6 +251,7 @@ class FishingPlugin(Star):
                                            self.item_template_repo, self.exchange_repo, self.game_config)
         self.achievement_service = AchievementService(self.achievement_repo, self.user_repo, self.inventory_repo,
                                                      self.item_template_repo, self.log_repo)
+        self.fish_weight_service = FishWeightService()
         self.fishing_service = FishingService(
             self.user_repo,
             self.inventory_repo,
@@ -257,6 +259,7 @@ class FishingPlugin(Star):
             self.log_repo,
             self.buff_repo,
             self.fishing_zone_service,
+            self.fish_weight_service,
             self.game_config,
         )
         

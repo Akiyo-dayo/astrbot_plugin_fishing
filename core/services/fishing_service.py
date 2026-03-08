@@ -17,7 +17,8 @@ from ..repositories.abstract_repository import (
 )
 from ..domain.models import FishingRecord, TaxRecord, FishingZone
 from ..services.fishing_zone_service import FishingZoneService
-from ..utils import get_now, get_fish_template, get_today, get_last_reset_time, calculate_after_refine
+from .fish_weight_service import FishWeightService
+from ..utils import get_now, get_last_reset_time, calculate_after_refine
 
 
 class FishingService:
@@ -31,6 +32,7 @@ class FishingService:
         log_repo: AbstractLogRepository,
         buff_repo: AbstractUserBuffRepository,
         fishing_zone_service: FishingZoneService,
+        fish_weight_service: FishWeightService,
         config: Dict[str, Any],
     ):
         self.user_repo = user_repo
@@ -38,6 +40,7 @@ class FishingService:
         self.item_template_repo = item_template_repo
         self.log_repo = log_repo
         self.buff_repo = buff_repo
+        self.fish_weight_service = fish_weight_service
         self.fishing_zone_service = fishing_zone_service
         self.config = config
 
@@ -185,7 +188,7 @@ class FishingService:
                 quality_modifier *= calculate_after_refine(acc_template.bonus_fish_quality_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
                 quantity_modifier *= calculate_after_refine(acc_template.bonus_fish_quantity_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
                 rare_chance += calculate_after_refine(acc_template.bonus_rare_fish_chance, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
-                coins_chance += calculate_after_refine(acc_template.bonus_coin_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity)
+                coins_chance += calculate_after_refine(acc_template.bonus_coin_modifier, refine_level= equipped_accessory_instance.refine_level, rarity=acc_template.rarity) - 1
         logger.debug(f"装备饰品加成后： quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}")
         # 获取鱼饵并应用加成
         cur_bait_id = user.current_bait_id
@@ -232,10 +235,36 @@ class FishingService:
                     logger.warning(f"用户 {user_id} 的当前鱼饵已被清除，因为鱼饵模板不存在。")
 
         if user.current_bait_id is None:
-            # 随机获取一个库存鱼饵
-            random_bait_id = self.inventory_repo.get_random_bait(user.user_id)
-            if random_bait_id:
-                user.current_bait_id = random_bait_id
+            is_renewed = False
+            # 1. 优先尝试续上刚才使用的同款鱼饵
+            if cur_bait_id is not None:
+                user_bait_inventory = self.inventory_repo.get_user_bait_inventory(user_id)
+                # 如果同款鱼饵还有库存，则自动续上同款
+                if user_bait_inventory is not None and user_bait_inventory.get(cur_bait_id, 0) > 0:
+                    user.current_bait_id = cur_bait_id
+                    
+                    # 如果是限时型鱼饵，自动续期时需要重置它的生效开始时间
+                    bait_template = self.item_template_repo.get_bait_by_id(cur_bait_id)
+                    if bait_template and bait_template.duration_minutes > 0:
+                        user.bait_start_time = get_now()
+                    
+                    self.user_repo.update(user)
+                    logger.info(f"用户 {user_id} 自动续装了同款鱼饵: {cur_bait_id}")
+                    is_renewed = True
+            
+            # 2. 如果同款已经彻底用光了（未成功续杯），则随机抓取背包里的其他鱼饵
+            if not is_renewed:
+                random_bait_id = self.inventory_repo.get_random_bait(user.user_id)
+                if random_bait_id:
+                    user.current_bait_id = random_bait_id
+                    
+                    # 为新随机到的鱼饵初始化时间（如果抽到的是限时鱼饵）
+                    new_bait_template = self.item_template_repo.get_bait_by_id(random_bait_id)
+                    if new_bait_template and new_bait_template.duration_minutes > 0:
+                        user.bait_start_time = get_now()
+                    
+                    self.user_repo.update(user)
+                    logger.info(f"用户 {user_id} 同款耗尽，自动随机切换至新鱼饵: {random_bait_id}")
 
         if user.current_bait_id is not None:
             bait_template = self.item_template_repo.get_bait_by_id(user.current_bait_id)
@@ -245,7 +274,7 @@ class FishingService:
                 rare_chance += bait_template.rare_chance_modifier
                 base_success_rate += bait_template.success_rate_modifier
                 garbage_reduction_modifier = bait_template.garbage_reduction_modifier
-                coins_chance += bait_template.value_modifier
+                coins_chance += bait_template.value_modifier - 1
         logger.debug(f"使用鱼饵加成后： base_success_rate={base_success_rate}, quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}")
         # 3. 判断是否成功钓到
         if random.random() >= base_success_rate:
@@ -687,7 +716,7 @@ class FishingService:
             # 如果限定鱼或全局鱼列表为空，则从所有鱼中随机抽取一条
             return self.item_template_repo.get_random_fish(rarity)
 
-        return get_fish_template(fish_list, coins_chance)
+        return self.fish_weight_service.choose_fish(fish_list, coins_chance) # <--- 改为使用注入的服务
 
     def _get_random_high_rarity(self, zone: FishingZone = None) -> int:
         """从6星及以上鱼类中随机选择一个稀有度，兼容区域限定鱼"""
