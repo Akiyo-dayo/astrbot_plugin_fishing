@@ -1,3 +1,4 @@
+import os
 import asyncio
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
@@ -28,7 +29,7 @@ async def modify_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查金币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定金币数量，例如：/修改金币 @用户 1000 或 /修改金币 123456789 1000"
+            "❌ 请指定金币数量，例如：ly修改金币 @用户 1000 或 ly修改金币 123456789 1000"
         )
         return
 
@@ -58,7 +59,7 @@ async def modify_premium(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查高级货币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定高级货币数量，例如：/修改高级货币 @用户 100 或 /修改高级货币 123456789 100"
+            "❌ 请指定高级货币数量，例如：ly修改高级货币 @用户 100 或 ly修改高级货币 123456789 100"
         )
         return
 
@@ -89,7 +90,7 @@ async def reward_premium(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查高级货币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定高级货币数量，例如：/奖励高级货币 @用户 100 或 /奖励高级货币 123456789 100"
+            "❌ 请指定高级货币数量，例如：ly奖励高级货币 @用户 100 或 ly奖励高级货币 123456789 100"
         )
         return
 
@@ -120,7 +121,7 @@ async def deduct_premium(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查高级货币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定高级货币数量，例如：/扣除高级货币 @用户 100 或 /扣除高级货币 123456789 100"
+            "❌ 请指定高级货币数量，例如：ly扣除高级货币 @用户 100 或 ly扣除高级货币 123456789 100"
         )
         return
 
@@ -145,7 +146,7 @@ async def reward_all_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     """给所有注册用户发放金币"""
     args = event.message_str.split(" ")
     if len(args) < 2:
-        yield event.plain_result("❌ 请指定奖励的金币数量，例如：/全体奖励金币 1000 或 /全体奖励金币 一万")
+        yield event.plain_result("❌ 请指定奖励的金币数量，例如：ly全体奖励金币 1000 或 ly全体奖励金币 一万")
         return
     
     try:
@@ -176,7 +177,7 @@ async def reward_all_premium(plugin: "FishingPlugin", event: AstrMessageEvent):
     args = event.message_str.split(" ")
     if len(args) < 2:
         yield event.plain_result(
-            "❌ 请指定奖励的高级货币数量，例如：/全体奖励高级货币 100"
+            "❌ 请指定奖励的高级货币数量，例如：ly全体奖励高级货币 100"
         )
         return
     amount = args[1]
@@ -203,7 +204,7 @@ async def deduct_all_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     """从所有注册用户扣除金币（不低于0）"""
     args = event.message_str.split(" ")
     if len(args) < 2:
-        yield event.plain_result("❌ 请指定扣除的金币数量，例如：/全体扣除金币 1000")
+        yield event.plain_result("❌ 请指定扣除的金币数量，例如：ly全体扣除金币 1000")
         return
     amount = args[1]
     if not amount.isdigit() or int(amount) <= 0:
@@ -239,7 +240,7 @@ async def deduct_all_premium(plugin: "FishingPlugin", event: AstrMessageEvent):
     args = event.message_str.split(" ")
     if len(args) < 2:
         yield event.plain_result(
-            "❌ 请指定扣除的高级货币数量，例如：/全体扣除高级货币 100"
+            "❌ 请指定扣除的高级货币数量，例如：ly全体扣除高级货币 100"
         )
         return
     amount = args[1]
@@ -284,7 +285,7 @@ async def reward_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查金币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定金币数量，例如：/奖励金币 @用户 1000 或 /奖励金币 @用户 一万"
+            "❌ 请指定金币数量，例如：ly奖励金币 @用户 1000 或 ly奖励金币 @用户 一万"
         )
         return
 
@@ -321,7 +322,7 @@ async def deduct_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查金币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定金币数量，例如：/扣除金币 @用户 1000 或 /扣除金币 123456789 1000"
+            "❌ 请指定金币数量，例如：ly扣除金币 @用户 1000 或 ly扣除金币 123456789 1000"
         )
         return
 
@@ -345,14 +346,46 @@ async def deduct_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
 
 
 async def start_admin(plugin: "FishingPlugin", event: AstrMessageEvent):
-    if plugin.web_admin_task and not plugin.web_admin_task.done():
-        yield event.plain_result("❌ 钓鱼后台管理已经在运行中")
-        return
-    yield event.plain_result("🔄 正在启动钓鱼插件Web管理后台...")
+    """启动钓鱼后台管理（幂等）。"""
+    admin_path = f"http://服务器IP:{plugin.port}/admin/"
+    admin_login_path = f"http://服务器IP:{plugin.port}/admin/login"
 
+    # 若任务仍在且端口可达，直接返回可访问地址
+    if plugin.web_admin_task and not plugin.web_admin_task.done():
+        if await plugin._check_port_active():
+            yield event.plain_result(
+                "✅ 钓鱼后台管理已经在运行中\n\n"
+                f"🔗 本机访问: http://localhost:{plugin.port}/admin/\n"
+                f"🌐 公网访问: {admin_path}\n"
+                f"🔐 登录页: {admin_login_path}"
+            )
+            return
+
+        # 任务对象存在但端口未起来，自动回收僵尸任务并重启
+        try:
+            plugin.web_admin_task.cancel()
+            await plugin.web_admin_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+        plugin.web_admin_task = None
+        yield event.plain_result("⚠️ 检测到后台任务异常，正在自动重启...")
+
+    # 端口被占用时，优先判断是否就是本插件后台已在运行（避免误报冲突）
     if not await _is_port_available(plugin.port):
+        if await plugin._check_port_active():
+            yield event.plain_result(
+                "✅ 钓鱼后台管理已经在运行中\n\n"
+                f"🔗 本机访问: http://localhost:{plugin.port}/admin/\n"
+                f"🌐 公网访问: {admin_path}\n"
+                f"🔐 登录页: {admin_login_path}"
+            )
+            return
         yield event.plain_result(f"❌ 端口 {plugin.port} 已被占用，请更换端口后重试")
         return
+
+    yield event.plain_result("🔄 正在启动钓鱼插件 Web 管理后台...")
 
     try:
         services_to_inject = {
@@ -362,24 +395,29 @@ async def start_admin(plugin: "FishingPlugin", event: AstrMessageEvent):
             "fishing_zone_service": plugin.fishing_zone_service,
             "shop_service": plugin.shop_service,
             "exchange_service": plugin.exchange_service,
+            "sicbo_service": plugin.sicbo_service,
+            "db_path": os.path.join(plugin.data_dir, "fish.db"),
         }
         app = create_app(secret_key=plugin.secret_key, services=services_to_inject)
         config = Config()
         config.bind = [f"0.0.0.0:{plugin.port}"]
         plugin.web_admin_task = asyncio.create_task(serve(app, config))
 
-        # 等待服务启动
-        for i in range(10):
+        for _ in range(10):
             if await plugin._check_port_active():
                 break
             await asyncio.sleep(1)
         else:
             raise TimeoutError("⌛ 启动超时，请检查防火墙设置")
 
-        await asyncio.sleep(1)  # 等待服务启动
+        await asyncio.sleep(0.5)
 
         yield event.plain_result(
-            f"✅ 钓鱼后台已启动！\n🔗请访问 http://localhost:{plugin.port}/admin\n🔑 密钥请到配置文件中查看\n\n⚠️ 重要提示：\n• 如需公网访问，请自行配置端口转发和防火墙规则\n• 确保端口 {plugin.port} 已开放并映射到公网IP\n• 建议使用反向代理（如Nginx）增强安全性"
+            "✅ 钓鱼后台已启动！\n\n"
+            f"🔗 本机访问: http://localhost:{plugin.port}/admin/\n"
+            f"🌐 公网访问: {admin_path}\n"
+            f"🔐 登录页: {admin_login_path}\n"
+            "🔑 密钥请到配置文件中查看"
         )
     except Exception as e:
         logger.error(f"启动后台失败: {e}", exc_info=True)
@@ -438,7 +476,7 @@ async def impersonate_start(plugin: "FishingPlugin", event: AstrMessageEvent):
     target_user_id, error_msg = parse_target_user_id(event, args, 1)
     if error_msg:
         yield event.plain_result(
-            f"用法: /代理上线 <目标用户ID> 或 /代理上线 @用户\n{error_msg}"
+            f"用法: ly代理上线 <目标用户ID> 或 ly代理上线 @用户\n{error_msg}"
         )
         return
 
@@ -450,7 +488,7 @@ async def impersonate_start(plugin: "FishingPlugin", event: AstrMessageEvent):
     plugin.impersonation_map[admin_id] = target_user_id
     nickname = target_user.nickname
     yield event.plain_result(
-        f"✅ 您已成功代理用户: {nickname} ({target_user_id})。\n现在您发送的所有游戏指令都将以该用户的身份执行。\n使用 /代理下线 结束代理。"
+        f"✅ 您已成功代理用户: {nickname} ({target_user_id})。\n现在您发送的所有游戏指令都将以该用户的身份执行。\n使用 ly代理下线 结束代理。"
     )
 
 
@@ -469,7 +507,7 @@ async def reward_all_items(plugin: "FishingPlugin", event: AstrMessageEvent):
     args = event.message_str.split(" ")
     if len(args) < 4:
         yield event.plain_result(
-            "❌ 请指定道具类型、道具ID和数量，例如：/全体发放道具 item 1 5"
+            "❌ 请指定道具类型、道具ID和数量，例如：ly全体发放道具 item 1 5"
         )
         return
 
@@ -595,7 +633,7 @@ async def grant_title(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查称号名称参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定称号名称，例如：/授予称号 @用户 钓鱼大师 或 /授予称号 123456789 钓鱼大师"
+            "❌ 请指定称号名称，例如：ly授予称号 @用户 钓鱼大师 或 ly授予称号 123456789 钓鱼大师"
         )
         return
     
@@ -618,7 +656,7 @@ async def revoke_title(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查称号名称参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定称号名称，例如：/移除称号 @用户 钓鱼大师 或 /移除称号 123456789 钓鱼大师"
+            "❌ 请指定称号名称，例如：ly移除称号 @用户 钓鱼大师 或 ly移除称号 123456789 钓鱼大师"
         )
         return
     
@@ -634,7 +672,7 @@ async def create_title(plugin: "FishingPlugin", event: AstrMessageEvent):
     
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定称号名称和描述，例如：/创建称号 称号名称 描述 [显示格式]\n"
+            "❌ 请指定称号名称和描述，例如：ly创建称号 称号名称 描述 [显示格式]\n"
             "显示格式可选，默认为 {name}，可以使用 {name} 和 {username} 占位符"
         )
         return

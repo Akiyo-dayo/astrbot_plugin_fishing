@@ -35,6 +35,7 @@ class SicboGame:
     is_active: bool = True
     is_settled: bool = False
     dice_result: Optional[List[int]] = None
+    preset_dice: Optional[List[int]] = None  # 开庄时预生成骰子，结算沿用
     # 保存游戏相关的上下文信息
     platform: Optional[str] = None  # 平台信息
     session_id: Optional[str] = None  # 会话ID
@@ -160,6 +161,18 @@ class SicboService:
         """获取指定会话的骰宝开奖历史"""
         records = self.draw_history.get(session_id, [])
         return records[-limit:]
+
+    def get_web_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取后台展示用日志（内存）。"""
+        all_logs = []
+        for records in self.draw_history.values():
+            all_logs.extend(records)
+        all_logs.sort(key=lambda x: x.get("timestamp", x.get("time", "")))
+        return all_logs[-limit:][::-1]
+
+    def clear_web_logs(self):
+        """清空后台展示用日志（内存）。"""
+        self.draw_history = {}
     
     def start_new_game(self, session_id: str, session_info: Dict[str, Any] = None, 
                         banker_user_id: str = None) -> Dict[str, Any]:
@@ -198,6 +211,8 @@ class SicboService:
         now = get_now()
         game_id = f"sicbo_{session_id}_{now.strftime('%Y%m%d_%H%M%S')}"
         
+        preset_dice = [random.randint(1, 6) for _ in range(3)]
+
         new_game = SicboGame(
             game_id=game_id,
             start_time=now,
@@ -209,11 +224,40 @@ class SicboService:
             session_id=session_id,
             session_info=session_info,
             banker_user_id=banker_user_id,
-            banker_nickname=banker_nickname
+            banker_nickname=banker_nickname,
+            preset_dice=preset_dice
         )
         
         # 保存游戏到会话字典
         self.games[session_id] = new_game
+
+        # 开庄即记录一条待开奖日志（仅内存）
+        preset_total = sum(preset_dice)
+        preset_triple = (preset_dice[0] == preset_dice[1] == preset_dice[2])
+        pending_log = {
+            "game_id": game_id,
+            "session_id": session_id,
+            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": new_game.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "is_settled": 0,
+            "dice_1": preset_dice[0],
+            "dice_2": preset_dice[1],
+            "dice_3": preset_dice[2],
+            "total_points": preset_total,
+            "result_big_small": "豹子" if preset_triple else ("大" if preset_total >= 11 else "小"),
+            "result_odd_even": "双" if preset_total % 2 == 0 else "单",
+            "is_triple": 1 if preset_triple else 0,
+            "player_count": 0,
+            "total_pot": 0,
+            "total_payout": 0,
+            "settlement_detail": "等待开奖...",
+            "log_id": game_id,
+        }
+        if session_id not in self.draw_history:
+            self.draw_history[session_id] = []
+        self.draw_history[session_id].append(pending_log)
+        if len(self.draw_history[session_id]) > self.max_draw_history:
+            self.draw_history[session_id] = self.draw_history[session_id][-self.max_draw_history:]
         
         # 取消旧的倒计时任务（如果存在）
         old_task = self.countdown_tasks.get(session_id)
@@ -456,8 +500,8 @@ class SicboService:
         
         game.is_active = False
         
-        # 投掷三个骰子
-        dice = [random.randint(1, 6) for _ in range(3)]
+        # 使用开庄时预生成的骰子（保证日志提前可见且前后一致）
+        dice = list(game.preset_dice) if game.preset_dice else [random.randint(1, 6) for _ in range(3)]
         game.dice_result = dice
         total = sum(dice)
         
@@ -646,25 +690,81 @@ class SicboService:
                     nickname, user_total_bet, total_profit, detail
                 )
         
+        # 生成结算详情文本（仅显示总盈亏）
+        winners_summary = []
+        losers_summary = []
+        for user_id, total_profit in user_profits.items():
+            user = self.user_repo.get_by_id(user_id)
+            nickname = user.nickname if user and user.nickname else user_id
+            if int(total_profit) > 0:
+                winners_summary.append(f"{nickname} +{int(total_profit):,}")
+            elif int(total_profit) < 0:
+                losers_summary.append(f"{nickname} {int(total_profit):,}")
+
+        detail_parts = []
+        if winners_summary:
+            detail_parts.append("中奖：" + "；".join(winners_summary))
+        if losers_summary:
+            detail_parts.append("未中：" + "；".join(losers_summary))
+        settlement_detail_text = "\n".join(detail_parts) if detail_parts else "无人参与"
+
+        # 回填本局日志（仅内存）
+        updated = False
+        session_logs = self.draw_history.get(session_id, [])
+        for log_item in reversed(session_logs):
+            if log_item.get("game_id") == game.game_id:
+                log_item.update({
+                    "dice_1": dice[0],
+                    "dice_2": dice[1],
+                    "dice_3": dice[2],
+                    "total_points": total,
+                    "result_big_small": "豹子" if results.get("is_triple") else ("大" if total >= 11 else "小"),
+                    "result_odd_even": "双" if total % 2 == 0 else "单",
+                    "is_triple": 1 if results.get("is_triple") else 0,
+                    "player_count": len(user_profits),
+                    "total_pot": game.total_pot,
+                    "total_payout": actual_total_payout,
+                    "settlement_detail": settlement_detail_text,
+                    "is_settled": 1,
+                    "timestamp": get_now().strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                updated = True
+                break
+
         # 记录骰宝开奖历史（按session_id分组）
         dice_emojis = {1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅'}
         dice_emoji_str = " ".join([dice_emojis.get(d, str(d)) for d in dice])
         draw_record = {
             "time": get_now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": get_now().strftime("%Y-%m-%d %H:%M:%S"),
             "dice": dice,
             "dice_display": dice_emoji_str,
             "total": total,
+            "total_points": total,
             "big_small": "大" if total >= 11 else "小",
+            "result_big_small": "豹子" if results.get("is_triple") else ("大" if total >= 11 else "小"),
             "odd_even": "双" if total % 2 == 0 else "单",
-            "is_triple": results.get("is_triple", False),
+            "result_odd_even": "双" if total % 2 == 0 else "单",
+            "is_triple": 1 if results.get("is_triple") else 0,
             "game_id": game.game_id,
             "participants": len(user_profits),
+            "player_count": len(user_profits),
+            "total_pot": game.total_pot,
+            "total_payout": actual_total_payout,
+            "settlement_detail": settlement_detail_text,
+            "is_settled": 1,
+            "end_time": game.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "dice_1": dice[0],
+            "dice_2": dice[1],
+            "dice_3": dice[2],
+            "log_id": game.game_id,
         }
-        if session_id not in self.draw_history:
-            self.draw_history[session_id] = []
-        self.draw_history[session_id].append(draw_record)
-        if len(self.draw_history[session_id]) > self.max_draw_history:
-            self.draw_history[session_id] = self.draw_history[session_id][-self.max_draw_history:]
+        if not updated:
+            if session_id not in self.draw_history:
+                self.draw_history[session_id] = []
+            self.draw_history[session_id].append(draw_record)
+            if len(self.draw_history[session_id]) > self.max_draw_history:
+                self.draw_history[session_id] = self.draw_history[session_id][-self.max_draw_history:]
         
         return {
             "success": True,

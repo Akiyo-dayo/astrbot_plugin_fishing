@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import csv
 import io
 
+import sqlite3
 from quart import (
     Quart, render_template, request, redirect, url_for, session, flash,
     Blueprint, current_app, jsonify
@@ -1893,3 +1894,70 @@ async def create_offer():
         return redirect(url_for("admin_bp.manage_shops"))
 
 # 旧的商品管理API路由已移除，功能已集成到商店详情页面
+
+# ============ 游戏日志 ============
+
+@admin_bp.route("/game_logs")
+@login_required
+async def game_logs():
+    """查看骰宝和擦弹日志（骰宝日志仅内存，不落盘）。"""
+    sicbo_logs = []
+    wipe_logs = []
+
+    # 骰宝日志从内存读取
+    sicbo_service = current_app.config.get("SICBO_SERVICE")
+    if sicbo_service:
+        try:
+            sicbo_logs = sicbo_service.get_web_logs(limit=50)
+        except Exception as e:
+            logger.error(f"读取内存骰宝日志失败: {e}")
+
+    # 擦弹日志仍走数据库
+    db_path = current_app.config.get("DB_PATH")
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT * FROM wipe_bomb_log WHERE contribution_amount > 0 "
+                    "ORDER BY log_id DESC LIMIT 50"
+                )
+                wipe_logs = [dict(row) for row in cursor.fetchall()]
+            except Exception:
+                pass
+            conn.close()
+        except Exception as e:
+            logger.error(f"读取擦弹日志失败: {e}")
+
+    return await render_template("game_logs.html", sicbo_logs=sicbo_logs, wipe_logs=wipe_logs)
+
+
+@admin_bp.route("/game_logs/clear_sicbo", methods=["POST"])
+@login_required
+async def clear_sicbo_logs():
+    """清空骰宝日志（仅清内存）。"""
+    sicbo_service = current_app.config.get("SICBO_SERVICE")
+    if sicbo_service:
+        try:
+            sicbo_service.clear_web_logs()
+        except Exception as e:
+            logger.error(f"清空内存骰宝日志失败: {e}")
+    return redirect(url_for("admin_bp.game_logs"))
+
+
+@admin_bp.route("/game_logs/clear_wipe", methods=["POST"])
+@login_required
+async def clear_wipe_logs():
+    """清空擦弹日志"""
+    db_path = current_app.config.get("DB_PATH")
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("DELETE FROM wipe_bomb_log")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"清空擦弹日志失败: {e}")
+    return redirect(url_for("admin_bp.game_logs"))

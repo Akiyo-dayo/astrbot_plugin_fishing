@@ -1,0 +1,191 @@
+{% extends "layout.html" %}
+{% block title %}游戏日志{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2>🎲 骰宝开庄日志
+        <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 刷新</button>
+        <form method="POST" action="{{ url_for('admin_bp.clear_sicbo_logs') }}" style="display:inline;" onsubmit="return confirm('确定要清空所有骰宝日志吗？')">
+            <button type="submit" class="btn btn-sm btn-outline-danger">🗑️ 清空骰宝日志</button>
+        </form>
+    </h2>
+    <div class="table-responsive mb-5">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>状态</th>
+                    <th>时间</th>
+                    <th>骰子</th>
+                    <th>总点数</th>
+                    <th>大/小</th>
+                    <th>单/双</th>
+                    <th>豹子</th>
+                    <th>参与人数</th>
+                    <th>总奖池</th>
+                    <th>总派彩</th>
+                    <th>结算详情</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in sicbo_logs %}
+                <tr class="{{ 'table-warning' if not log.is_settled else '' }}">
+                    <td>
+                        {% if not log.is_settled %}
+                            <span class="badge bg-warning text-dark countdown-badge" data-end-time="{{ log.end_time }}">
+                                ⏳ 进行中
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary">✅ 已结算</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ log.timestamp }}</td>
+                    <td>
+                        {% set dice_map = {'1':'⚀','2':'⚁','3':'⚂','4':'⚃','5':'⚄','6':'⚅'} %}
+                        <span style="font-size:1.3em;">{{ dice_map[log.dice_1|string] }} {{ dice_map[log.dice_2|string] }} {{ dice_map[log.dice_3|string] }}</span>
+                    </td>
+                    <td><strong>{{ log.total_points }}</strong></td>
+                    <td>
+                        {% if log.result_big_small == '豹子' %}
+                            <span class="badge bg-danger">豹子</span>
+                        {% elif log.result_big_small == '大' %}
+                            <span class="badge bg-primary">大</span>
+                        {% else %}
+                            <span class="badge bg-success">小</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.result_odd_even == '单' %}
+                            <span class="badge bg-warning text-dark">单</span>
+                        {% else %}
+                            <span class="badge bg-info">双</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ '✅' if log.is_triple else '❌' }}</td>
+                    <td>{{ log.player_count }}</td>
+                    <td>{{ '{:,}'.format(log.total_pot) }}</td>
+                    <td>{{ '{:,}'.format(log.total_payout) }}</td>
+                    <td>
+                        {% if log.is_settled and log.settlement_detail %}
+                        <button class="btn btn-sm btn-outline-primary" onclick="showDetail({{ log.log_id }})">查看</button>
+                        <div id="detail-{{ log.log_id }}" style="display:none;">
+                            <pre style="font-size:12px;max-height:200px;overflow:auto;">{{ log.settlement_detail }}</pre>
+                        </div>
+                        {% elif not log.is_settled %}
+                        <span class="text-muted">等待开奖...</span>
+                        {% else %}
+                        无人参与
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not sicbo_logs %}
+                <tr><td colspan="11" class="text-center text-muted">暂无记录</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <h2>💣 擦弹日志
+        <form method="POST" action="{{ url_for('admin_bp.clear_wipe_logs') }}" style="display:inline;" onsubmit="return confirm('确定要清空所有擦弹日志吗？')">
+            <button type="submit" class="btn btn-sm btn-outline-danger">🗑️ 清空擦弹日志</button>
+        </form>
+    </h2>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>时间</th>
+                    <th>用户ID</th>
+                    <th>投入金额</th>
+                    <th>倍率</th>
+                    <th>获得金额</th>
+                    <th>盈亏</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in wipe_logs %}
+                <tr class="{{ 'table-success' if (log.reward_amount - log.contribution_amount) > 0 else ('table-danger' if (log.reward_amount - log.contribution_amount) < 0 else '') }}">
+                    <td>{{ log.timestamp }}</td>
+                    <td>{{ log.user_id }}</td>
+                    <td>{{ '{:,}'.format(log.contribution_amount) }}</td>
+                    <td>
+                        {% if log.reward_multiplier >= 15 %}
+                            <span class="badge bg-danger">{{ '%.2f'|format(log.reward_multiplier) }}x</span>
+                        {% elif log.reward_multiplier >= 3 %}
+                            <span class="badge bg-warning text-dark">{{ '%.2f'|format(log.reward_multiplier) }}x</span>
+                        {% elif log.reward_multiplier >= 1 %}
+                            <span class="badge bg-success">{{ '%.2f'|format(log.reward_multiplier) }}x</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ '%.2f'|format(log.reward_multiplier) }}x</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ '{:,}'.format(log.reward_amount) }}</td>
+                    <td>
+                        {% set profit = log.reward_amount - log.contribution_amount %}
+                        {% if profit > 0 %}
+                            <span class="text-success">+{{ '{:,}'.format(profit) }}</span>
+                        {% elif profit < 0 %}
+                            <span class="text-danger">{{ '{:,}'.format(profit) }}</span>
+                        {% else %}
+                            <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not wipe_logs %}
+                <tr><td colspan="6" class="text-center text-muted">暂无记录</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function showDetail(logId) {
+    var el = document.getElementById('detail-' + logId);
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+// 倒计时逻辑
+function updateCountdowns() {
+    var badges = document.querySelectorAll('.countdown-badge');
+    var needRefresh = false;
+    badges.forEach(function(badge) {
+        var endTime = badge.getAttribute('data-end-time');
+        if (!endTime) return;
+        
+        // 解析服务器时间（假设为 UTC+8）
+        var end = new Date(endTime);
+        var now = new Date();
+        var diff = Math.floor((end - now) / 1000);
+        
+        if (diff > 0) {
+            var min = Math.floor(diff / 60);
+            var sec = diff % 60;
+            badge.innerHTML = '⏳ ' + (min > 0 ? min + '分' : '') + sec + '秒';
+        } else {
+            badge.innerHTML = '🎯 开奖中...';
+            badge.classList.remove('bg-warning', 'text-dark');
+            badge.classList.add('bg-danger');
+            needRefresh = true;
+        }
+    });
+    if (needRefresh) {
+        setTimeout(function() { location.reload(); }, 3000);
+    }
+}
+
+// 每秒更新倒计时
+setInterval(updateCountdowns, 1000);
+updateCountdowns();
+
+// 有进行中的游戏时，每5秒自动刷新页面
+var hasActive = document.querySelectorAll('.countdown-badge').length > 0;
+if (hasActive) {
+    // 不自动刷新整页，只倒计时；结束后3秒刷新一次
+}
+</script>
+{% endblock %}
