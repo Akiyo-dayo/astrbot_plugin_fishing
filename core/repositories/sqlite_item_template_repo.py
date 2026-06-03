@@ -175,10 +175,16 @@ class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
             cursor.execute("SELECT * FROM fish ORDER BY rarity DESC, base_value DESC")
             return [self._row_to_fish(row) for row in cursor.fetchall()]
 
-    def get_random_fish(self) -> Optional[Fish]:
+    def get_random_fish(self, rarity: Optional[int] = None) -> Optional[Fish]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM fish ORDER BY RANDOM() LIMIT 1")
+            if rarity is not None:
+                cursor.execute(
+                    "SELECT * FROM fish WHERE rarity = ? ORDER BY RANDOM() LIMIT 1",
+                    (rarity,),
+                )
+            else:
+                cursor.execute("SELECT * FROM fish ORDER BY RANDOM() LIMIT 1")
             row = cursor.fetchone()
             return self._row_to_fish(row) if row else None
 
