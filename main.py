@@ -1399,6 +1399,12 @@ class FishingPlugin(Star):
         async for r in self.exchange_handlers.view_inventory(event):
             yield r
 
+    @filter.command("交易所升级", alias={"升级交易所", "交易所扩容"})
+    async def upgrade_exchange_capacity(self, event: AstrMessageEvent):
+        """升级交易所仓库容量"""
+        async for r in self.exchange_handlers.upgrade_capacity(event):
+            yield r
+
     @filter.command("清仓")
     async def clear_inventory(self, event: AstrMessageEvent):
         """清空交易所持仓，将所有商品按当前价格卖出"""

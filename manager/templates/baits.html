@@ -38,6 +38,7 @@
                             <span class="badge bg-secondary" title="垃圾减少率">{{ item.garbage_reduction_modifier * 100 }}%</span>
                             <span class="badge bg-warning text-dark" title="价值乘数">x{{ item.value_modifier }}</span>
                             <span class="badge bg-primary" title="数量乘数">x{{ item.quantity_modifier }}</span>
+                            <span class="badge bg-dark" title="重量潜力乘数">重x{{ item.weight_modifier }}</span>
                             {% if item.is_consumable %}
                                 <span class="badge bg-danger">消耗品</span>
                             {% else %}
@@ -96,6 +97,7 @@
                         <div class="col-md-4"><label>垃圾减少率 (0.5 = 50%)</label><input type="number" step="0.01" name="garbage_reduction_modifier" class="form-control" value="0.0"></div>
                         <div class="col-md-4"><label>价值乘数 (1.1 = +10%)</label><input type="number" step="0.01" name="value_modifier" class="form-control" value="1.0"></div>
                         <div class="col-md-4"><label>数量乘数 (2.0 = 双倍)</label><input type="number" step="0.01" name="quantity_modifier" class="form-control" value="1.0"></div>
+                        <div class="col-md-4"><label>重量潜力乘数 (1.2 = +20%)</label><input type="number" step="0.01" name="weight_modifier" class="form-control" value="1.0"></div>
                         <div class="col-md-4 d-flex align-items-end">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" name="is_consumable" id="isConsumable" checked>

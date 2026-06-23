@@ -13,7 +13,8 @@ document.addEventListener('DOMContentLoaded', function () {
         'rare_chance_modifier': '0.0',
         'garbage_reduction_modifier': '0.0',
         'value_modifier': '1.0',
-        'quantity_modifier': '1.0'
+        'quantity_modifier': '1.0',
+        'weight_modifier': '1.0'
     };
 
     document.getElementById('addItemBtn').addEventListener('click', function () {

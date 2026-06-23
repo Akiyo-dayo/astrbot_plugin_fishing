@@ -82,7 +82,14 @@ class DataSetupService:
                 "effect_description": bait[3],
                 "duration_minutes": bait[4],
                 "cost": bait[5],
-                "required_rod_rarity": bait[6]
+                "required_rod_rarity": bait[6],
+                "success_rate_modifier": bait[7],
+                "rare_chance_modifier": bait[8],
+                "garbage_reduction_modifier": bait[9],
+                "value_modifier": bait[10],
+                "quantity_modifier": bait[11],
+                "weight_modifier": bait[12],
+                "is_consumable": bait[13],
             })
 
         # 填充鱼竿数据

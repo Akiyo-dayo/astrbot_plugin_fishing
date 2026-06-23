@@ -485,6 +485,9 @@ class ExchangeHandlers:
             elif command in ["卖出", "sell"]:
                 async for r in self.sell_commodity(event):
                     yield r
+            elif command in ["升级", "扩容", "upgrade"]:
+                async for r in self.upgrade_capacity(event):
+                    yield r
             elif command in ["帮助", "help"]:
                 yield event.plain_result(self._get_exchange_help())
             elif command in ["历史", "history"]:
@@ -517,6 +520,7 @@ class ExchangeHandlers:
 • 交易所 开户: 开通交易所账户
 • 交易所 状态: 查看账户状态
 • 交易所 统计: 查看交易统计
+• 交易所 升级: 升级仓库容量
 
 💰 交易操作
 • 交易所 买入 [商品] [数量]: 购买大宗商品
@@ -632,19 +636,21 @@ class ExchangeHandlers:
                     msg += "─" * 20 + "\n"
 
             # 显示持仓容量和盈亏分析
-            capacity = self.plugin.exchange_service.config.get("exchange", {}).get("capacity", 1000)
+            capacity_info = self.plugin.exchange_service.get_capacity_info(user_id)
+            capacity = capacity_info.get("capacity", 1000) if capacity_info.get("success") else 1000
 
             inventory_result = self.plugin.exchange_service.get_user_inventory(user_id)
             if inventory_result["success"]:
                 inventory = inventory_result["inventory"]
-                current_total_quantity = sum(
+                current_total_quantity = capacity_info.get("current_quantity", 0) if capacity_info.get("success") else sum(
                     data.get("total_quantity", 0) for data in inventory.values()
                 )
                 capacity_percent = (
                     (current_total_quantity / capacity) * 100 if capacity > 0 else 0
                 )
 
-                msg += f"📦 当前持仓: {current_total_quantity} / {capacity} ({capacity_percent:.1f}%)\n"
+                level_text = f"Lv.{capacity_info.get('level', 0)} x{capacity_info.get('multiplier', 1.0):.1f}" if capacity_info.get("success") else "Lv.0"
+                msg += f"📦 当前持仓: {current_total_quantity} / {capacity} ({capacity_percent:.1f}%) [{level_text}]\n"
 
                 if inventory:
                     analysis = self._calculate_inventory_profit_loss(inventory, prices)
@@ -720,6 +726,16 @@ class ExchangeHandlers:
             else f"❌ {result['message']}"
         )
 
+    async def upgrade_capacity(self, event: AstrMessageEvent):
+        """升级交易所仓库容量"""
+        user_id = self._get_effective_user_id(event)
+        result = self.exchange_service.upgrade_capacity(user_id)
+        yield event.plain_result(
+            f"✅ {result['message']}"
+            if result["success"]
+            else f"❌ {result['message']}"
+        )
+
     async def view_inventory(self, event: AstrMessageEvent):
         """查看大宗商品库存"""
         try:
@@ -733,9 +749,7 @@ class ExchangeHandlers:
                 return
 
             inventory = result["inventory"]
-            if not inventory:
-                yield event.plain_result("您的交易所库存为空。")
-                return
+            capacity_info = self.exchange_service.get_capacity_info(user_id)
 
             market_status = self.exchange_service.get_market_status()
             current_prices = market_status.get("prices", {})
@@ -831,11 +845,16 @@ class ExchangeHandlers:
 
             msg += "═" * 30 + "\n"
 
-            capacity = self.exchange_service.config.get("exchange", {}).get("capacity", 1000)
-            current_total_quantity = sum(
-                data.get("total_quantity", 0) for data in inventory.values()
-            )
-            msg += f"📦 当前持仓: {current_total_quantity} / {capacity}\n"
+            if capacity_info.get("success"):
+                capacity = capacity_info["capacity"]
+                current_total_quantity = capacity_info["current_quantity"]
+                msg += f"📦 当前持仓: {current_total_quantity} / {capacity} [Lv.{capacity_info['level']} x{capacity_info['multiplier']:.1f}]\n"
+                if capacity_info.get("can_upgrade"):
+                    msg += f"⬆️ 下级容量: {capacity_info['next_capacity']}，升级费用: {capacity_info['upgrade_cost']:,} 金币\n"
+                else:
+                    msg += "⬆️ 仓库容量已满级\n"
+            else:
+                msg += "📦 当前持仓: 无法获取\n"
 
             yield event.plain_result(msg)
 

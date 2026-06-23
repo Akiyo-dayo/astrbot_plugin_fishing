@@ -74,6 +74,39 @@ class FishingService:
         if default_target:
             self._notification_target = default_target
 
+    def _get_bait_rod_requirement_error(self, user_id: str, bait_template) -> Optional[str]:
+        required_rod_rarity = getattr(bait_template, "required_rod_rarity", 0) or 0
+        if required_rod_rarity <= 0:
+            return None
+
+        equipped_rod = self.inventory_repo.get_user_equipped_rod(user_id)
+        if not equipped_rod:
+            return f"使用【{bait_template.name}】需要装备 {required_rod_rarity} 星及以上鱼竿"
+
+        rod_template = self.item_template_repo.get_rod_by_id(equipped_rod.rod_id)
+        if not rod_template or rod_template.rarity < required_rod_rarity:
+            current_rarity = rod_template.rarity if rod_template else 0
+            return f"使用【{bait_template.name}】需要 {required_rod_rarity} 星及以上鱼竿，当前鱼竿为 {current_rarity} 星"
+
+        return None
+
+    def _get_random_usable_bait_id(self, user_id: str) -> Optional[int]:
+        bait_inventory = self.inventory_repo.get_user_bait_inventory(user_id)
+        usable_bait_ids = []
+
+        for bait_id, quantity in bait_inventory.items():
+            if quantity <= 0:
+                continue
+
+            bait_template = self.item_template_repo.get_bait_by_id(bait_id)
+            if not bait_template:
+                continue
+
+            if self._get_bait_rod_requirement_error(user_id, bait_template) is None:
+                usable_bait_ids.append(bait_id)
+
+        return random.choice(usable_bait_ids) if usable_bait_ids else None
+
     def toggle_auto_fishing(self, user_id: str) -> Dict[str, Any]:
         """
         切换用户的自动钓鱼状态。
@@ -135,6 +168,16 @@ class FishingService:
             first_zone = self.inventory_repo.get_zone_by_id(1)
             first_zone_name = first_zone.name if first_zone else "初始区域"
             return {"success": False, "message": f"该钓鱼区域已于 {zone.available_until.strftime('%Y-%m-%d %H:%M')} 关闭，已自动传送回{first_zone_name}"}
+
+        if user.current_bait_id is not None:
+            bait_template = self.item_template_repo.get_bait_by_id(user.current_bait_id)
+            if bait_template:
+                requirement_error = self._get_bait_rod_requirement_error(user_id, bait_template)
+                if requirement_error:
+                    user.current_bait_id = None
+                    user.bait_start_time = None
+                    self.user_repo.update(user)
+                    return {"success": False, "message": requirement_error}
         
         fishing_cost = zone.fishing_cost
         if not user.can_afford(fishing_cost):
@@ -149,6 +192,7 @@ class FishingService:
         quantity_modifier = 1.0 # 数量加成
         rare_chance = 0.0 # 稀有鱼出现几率
         coins_chance = 0.0 # 增加同稀有度高金币出现几率
+        weight_modifier = 1.0 # 最大重量潜力加成
 
         # --- 新增：应用 Buff 效果 ---
         active_buffs = self.buff_repo.get_all_active_by_user(user_id)
@@ -197,6 +241,14 @@ class FishingService:
         # 判断鱼饵是否过期
         if user.current_bait_id is not None:
             bait_template = self.item_template_repo.get_bait_by_id(cur_bait_id)
+            if bait_template:
+                requirement_error = self._get_bait_rod_requirement_error(user_id, bait_template)
+                if requirement_error:
+                    user.current_bait_id = None
+                    user.bait_start_time = None
+                    self.user_repo.update(user)
+                    return {"success": False, "message": requirement_error}
+
             if bait_template and bait_template.duration_minutes > 0:
                 # 检查鱼饵是否过期
                 bait_expiry_time = user.bait_start_time
@@ -241,20 +293,21 @@ class FishingService:
                 user_bait_inventory = self.inventory_repo.get_user_bait_inventory(user_id)
                 # 如果同款鱼饵还有库存，则自动续上同款
                 if user_bait_inventory is not None and user_bait_inventory.get(cur_bait_id, 0) > 0:
-                    user.current_bait_id = cur_bait_id
-                    
-                    # 如果是限时型鱼饵，自动续期时需要重置它的生效开始时间
                     bait_template = self.item_template_repo.get_bait_by_id(cur_bait_id)
-                    if bait_template and bait_template.duration_minutes > 0:
-                        user.bait_start_time = get_now()
-                    
-                    self.user_repo.update(user)
-                    logger.info(f"用户 {user_id} 自动续装了同款鱼饵: {cur_bait_id}")
-                    is_renewed = True
+                    if bait_template and self._get_bait_rod_requirement_error(user_id, bait_template) is None:
+                        user.current_bait_id = cur_bait_id
+
+                        # 如果是限时型鱼饵，自动续期时需要重置它的生效开始时间
+                        if bait_template.duration_minutes > 0:
+                            user.bait_start_time = get_now()
+
+                        self.user_repo.update(user)
+                        logger.info(f"用户 {user_id} 自动续装了同款鱼饵: {cur_bait_id}")
+                        is_renewed = True
             
             # 2. 如果同款已经彻底用光了（未成功续杯），则随机抓取背包里的其他鱼饵
             if not is_renewed:
-                random_bait_id = self.inventory_repo.get_random_bait(user.user_id)
+                random_bait_id = self._get_random_usable_bait_id(user.user_id)
                 if random_bait_id:
                     user.current_bait_id = random_bait_id
                     
@@ -275,7 +328,8 @@ class FishingService:
                 base_success_rate += bait_template.success_rate_modifier
                 garbage_reduction_modifier = bait_template.garbage_reduction_modifier
                 coins_chance += bait_template.value_modifier - 1
-        logger.debug(f"使用鱼饵加成后： base_success_rate={base_success_rate}, quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}")
+                weight_modifier *= getattr(bait_template, "weight_modifier", 1.0) or 1.0
+        logger.debug(f"使用鱼饵加成后： base_success_rate={base_success_rate}, quality_modifier={quality_modifier}, quantity_modifier={quantity_modifier}, rare_chance={rare_chance}, coins_chance={coins_chance}, weight_modifier={weight_modifier}")
         # 3. 判断是否成功钓到
         if random.random() >= base_success_rate:
             # 失败逻辑
@@ -342,7 +396,11 @@ class FishingService:
                     fish_template = new_fish_template
 
         # 计算最终属性
-        weight = random.randint(fish_template.min_weight, fish_template.max_weight)
+        effective_max_weight = max(
+            fish_template.min_weight,
+            int(fish_template.max_weight * weight_modifier)
+        )
+        weight = random.randint(fish_template.min_weight, effective_max_weight)
         value = fish_template.base_value
 
         # 4.2 按品质加成给予额外品质（重量/价值）奖励
@@ -369,7 +427,7 @@ class FishingService:
             
             quality_bonus = random.random() <= final_chance
         if quality_bonus:
-            extra_weight = random.randint(fish_template.min_weight, fish_template.max_weight)
+            extra_weight = random.randint(fish_template.min_weight, effective_max_weight)
             weight += extra_weight
             # 标记为高品质鱼，价值在出售时按2倍计算
             quality_level = 1

@@ -73,6 +73,14 @@ class ExchangeService:
         """获取用户库存信息"""
         return self.inventory_service.get_user_inventory(user_id)
 
+    def get_capacity_info(self, user_id: str) -> Dict[str, Any]:
+        """获取用户交易所仓库容量信息"""
+        return self.inventory_service.get_capacity_info(user_id)
+
+    def upgrade_capacity(self, user_id: str) -> Dict[str, Any]:
+        """升级用户交易所仓库容量"""
+        return self.inventory_service.upgrade_capacity(user_id)
+
     def purchase_commodity(self, user_id: str, commodity_id: str, quantity: int, current_price: int) -> Dict[str, Any]:
         """购买大宗商品"""
         return self.inventory_service.purchase_commodity(user_id, commodity_id, quantity, current_price)

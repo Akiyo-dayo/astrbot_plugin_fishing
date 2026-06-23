@@ -591,7 +591,11 @@ async def market(plugin: "FishingPlugin", event: AstrMessageEvent):
             if item.item_type == "fish" and hasattr(item, "quality_level") and item.quality_level == 1:
                 quality_str = " ✨高品质"
             
-            msg += f" - {item.item_name}{quality_str}{refine_level_str}{quantity_text} (ID: {display_code}) - 价格: {item.price} 金币\n"
+            if hasattr(item, "quantity") and item.quantity > 1:
+                price_text = f"单价: {item.price} 金币，总价: {item.price * item.quantity} 金币"
+            else:
+                price_text = f"价格: {item.price} 金币"
+            msg += f" - {item.item_name}{quality_str}{refine_level_str}{quantity_text} (ID: {display_code}) - {price_text}\n"
             msg += f" - 售卖人： {seller_display}"
 
             # 为大宗商品添加腐败时间显示
@@ -880,7 +884,11 @@ async def my_listings(plugin: "FishingPlugin", event: AstrMessageEvent):
                 message += f"📦 {listing.item_name}"
                 if listing.refine_level > 1:
                     message += f" 精{listing.refine_level}"
-                message += f"\n💰 价格: {listing.price} 金币\n"
+                if listing.quantity > 1:
+                    message += f" x{listing.quantity}"
+                    message += f"\n💰 单价: {listing.price} 金币，总价: {listing.price * listing.quantity} 金币\n"
+                else:
+                    message += f"\n💰 价格: {listing.price} 金币\n"
                 message += (
                     f"📅 上架时间: {listing.listed_at.strftime('%Y-%m-%d %H:%M')}\n\n"
                 )

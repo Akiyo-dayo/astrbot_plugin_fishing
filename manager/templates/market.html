@@ -243,6 +243,9 @@
                             <div class="d-flex align-items-center">
                                 <span id="price-display-{{ listing.market_id }}" class="price-display">
                                     <i class="fas fa-coins text-warning"></i> {{ listing.price }}
+                                    {% if listing.quantity and listing.quantity > 1 %}
+                                        <small class="text-muted d-block">总价 {{ listing.price * listing.quantity }}</small>
+                                    {% endif %}
                                 </span>
                                 <input type="number" 
                                        id="price-input-{{ listing.market_id }}" 

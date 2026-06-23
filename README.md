@@ -8,14 +8,14 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### 🎰 **v2.6.0 全新博弈系统 - 21点 + 拉杆机 + 骰宝增强**
+### 💼 **v2.6.1 交易所容量成长 + 道具消耗 + 鱼饵重量加成**
 
-🎯 **三大全新游戏系统！**
+🎯 **经济与钓鱼体验继续打磨！**
 
-🃏 **21点(Blackjack)** - 加倍/分牌/保险/连胜连败/智能超时，完整规则实现  
-🎰 **拉杆机** - 7海洋符号×4档位，累积奖池/保底/幸运时段/连转模式  
-🎲 **骰宝增强** - 玩家开庄 + 骰宝记录 + WebUI配置  
-📊 **统一读博记录** - 跨游戏博弈历史统计，规避QQ违规词检测  
+📦 **交易所仓库升级** - 玩家可消耗金币提升大宗商品持仓容量  
+🛒 **市场批量流转优化** - 大宗商品按数量扣减，购买按总价结算并校验容量  
+🎁 **小钱袋可直接使用** - 作为消耗道具获得金币  
+🪱 **鱼饵重量潜力加成** - 巨物诱饵现在会提升渔获最大重量潜力  
 
 
 </div>
@@ -27,14 +27,14 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.6.0-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.0)
+[![Version](https://img.shields.io/badge/Version-2.6.1-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.1)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
 
 <div align="center">
 
-### 🆕 **v2.4.0 重大更新** 🆕
+### 🧭 **当前功能概览** 🧭
 
 </div>
 
@@ -95,7 +95,7 @@
 
 #### 📋 当前开发状态
 
-**2.0版本已完成所有主要功能开发**，目前没有新的功能开发计划。
+**当前版本已进入持续迭代阶段**，后续会继续围绕稳定性、经济平衡和玩家体验进行优化。
 
 **后续版本将专注于：**
 - 🐛 **Bug修复**：修复用户反馈的问题和已知bug
@@ -106,6 +106,16 @@
 如果您有功能建议或发现问题，欢迎在 [Issues](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues) 中提出！
 
 ## 📦 更新记录
+
+#### 💼 **v2.6.1 交易所容量成长 + 道具消耗 + 鱼饵重量加成**
+
+- ✨ 新增交易所仓库容量升级机制，支持 `/交易所 升级`、`/交易所升级`、`/升级交易所`
+- 🛒 优化大宗商品市场流转：批量上架按数量扣减，购买按单价 × 数量结算，并校验买家交易所容量
+- 🎁 小钱袋调整为可直接使用的消耗道具，默认获得 1000 金币
+- 🪱 新增鱼饵重量潜力加成，巨物诱饵现在会提升渔获最大重量潜力
+- 感谢 [@LoCCai](https://github.com/LoCCai) 的贡献 ([#15](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/pull/15))
+
+---
 
 #### 🎰 **v2.6.0 全新博弈系统 - 21点 + 拉杆机 + 骰宝增强**
 
@@ -392,7 +402,7 @@
 
 - **大宗商品交易**：支持鱼干、鱼油、鱼卵等大宗商品的买卖交易
 - **动态价格系统**：商品价格每日波动，模拟真实市场环境
-- **容量管理**：总持仓上限1000份，增加策略性投资决策
+- **容量管理**：以配置容量为基数，支持玩家升级扩容，增加策略性投资决策
 - **腐败机制**：商品有腐败时间，过期后自动清理
 - **盈亏分析**：详细的买入卖出盈亏分析，帮助用户了解投资表现
 - **市场集成**：大宗商品可上架到玩家市场进行交易
@@ -406,6 +416,7 @@
 | `/交易所` | - | 查看交易所主菜单和市场状态（等同于 `/交易所 状态`） |
 | `/交易所 开户` | - | 开通交易所账户（花费100,000金币） |
 | `/交易所 状态` | `/交易所 status` | 查看当前市场状态和商品价格 |
+| `/交易所 升级` | `/交易所升级`、`/升级交易所` | 花费500,000金币升级仓库容量 |
 | `/交易所 买入 [商品名称] [数量]` | - | 购买指定数量的大宗商品 |
 | `/交易所 卖出 [商品名称]` | - | 卖出所有指定商品 |
 | `/交易所 卖出 [CID] [数量]` | - | 按ID卖出指定数量商品 |
@@ -441,14 +452,15 @@
 - 市场购买的商品自动入库到交易所
 
 **⚖️ 容量与税收**
-- 总持仓上限：1000份（可配置）
+- 总持仓上限：以 `capacity` 为基数，升级后为 1.5/2.0/2.5/3.0 倍
+- 每次仓库升级消耗 500,000 金币
 - 交易税率：5%（可配置）
 - 上架商品仍占用容量，被购买后释放
 
 **⚙️ 可配置参数**
 - `update_timing`：价格更新时间点，格式 `"HH:MM, HH:MM, ..."`，支持多种分隔符（默认 `"9:00, 15:00, 21:00"`）
 - `account_fee`：交易所开户费用（默认100,000金币）
-- `capacity_limit`：总持仓上限（默认1000份）
+- `capacity`：交易所基础持仓容量（默认1000份）
 - `trade_tax_rate`：交易税率（默认5%）
 
 **📈 价格历史与市场分析（v2.3.6新增）**

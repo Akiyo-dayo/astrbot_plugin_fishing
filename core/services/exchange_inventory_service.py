@@ -15,6 +15,15 @@ from ..repositories.abstract_repository import AbstractExchangeRepository, Abstr
 
 class ExchangeInventoryService:
     """交易所库存管理服务"""
+
+    CAPACITY_UPGRADE_COST = 500000
+    CAPACITY_LEVEL_MULTIPLIERS = {
+        0: 1.0,
+        1: 1.5,
+        2: 2.0,
+        3: 2.5,
+        4: 3.0,
+    }
     
     def __init__(self, user_repo: AbstractUserRepository, exchange_repo: AbstractExchangeRepository, 
                  config: Dict[str, Any], log_repo: AbstractLogRepository, market_service=None):
@@ -29,6 +38,87 @@ class ExchangeInventoryService:
             "dried_fish": {"name": "鱼干", "description": "经过晾晒处理的鱼类，保质期较长"},
             "fish_roe": {"name": "鱼卵", "description": "珍贵的鱼类卵子，营养价值极高"},
             "fish_oil": {"name": "鱼油", "description": "从鱼类中提取的油脂，用途广泛"}
+        }
+
+    def _get_base_capacity(self) -> int:
+        return int(self.config.get("capacity", 1000))
+
+    def _capacity_for_level(self, level: int) -> int:
+        multiplier = self.CAPACITY_LEVEL_MULTIPLIERS.get(level, 1.0)
+        return int(self._get_base_capacity() * multiplier)
+
+    def get_capacity_info(self, user_id: str) -> Dict[str, Any]:
+        """获取用户交易所仓库容量和升级信息"""
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            return {"success": False, "message": "用户不存在"}
+
+        level = max(0, min(getattr(user, "exchange_capacity_level", 0), max(self.CAPACITY_LEVEL_MULTIPLIERS)))
+        capacity = self._capacity_for_level(level)
+        current_quantity = self._get_user_total_commodity_quantity(user_id)
+        next_level = level + 1
+
+        result = {
+            "success": True,
+            "level": level,
+            "base_capacity": self._get_base_capacity(),
+            "multiplier": self.CAPACITY_LEVEL_MULTIPLIERS[level],
+            "capacity": capacity,
+            "current_quantity": current_quantity,
+            "upgrade_cost": self.CAPACITY_UPGRADE_COST,
+            "max_level": max(self.CAPACITY_LEVEL_MULTIPLIERS),
+        }
+
+        if next_level in self.CAPACITY_LEVEL_MULTIPLIERS:
+            result.update({
+                "next_level": next_level,
+                "next_multiplier": self.CAPACITY_LEVEL_MULTIPLIERS[next_level],
+                "next_capacity": self._capacity_for_level(next_level),
+                "can_upgrade": True,
+            })
+        else:
+            result.update({
+                "next_level": None,
+                "next_multiplier": None,
+                "next_capacity": None,
+                "can_upgrade": False,
+            })
+
+        return result
+
+    def upgrade_capacity(self, user_id: str) -> Dict[str, Any]:
+        """升级用户交易所仓库容量"""
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            return {"success": False, "message": "用户不存在"}
+        if not user.exchange_account_status:
+            return {"success": False, "message": "请先使用【交易所 开户】开通交易所账户"}
+
+        current_level = max(0, getattr(user, "exchange_capacity_level", 0))
+        next_level = current_level + 1
+        if next_level not in self.CAPACITY_LEVEL_MULTIPLIERS:
+            return {"success": False, "message": "交易所仓库容量已达到最高等级"}
+
+        cost = self.CAPACITY_UPGRADE_COST
+        if user.coins < cost:
+            return {"success": False, "message": f"金币不足，升级需要 {cost:,} 金币"}
+
+        old_capacity = self._capacity_for_level(current_level)
+        new_capacity = self._capacity_for_level(next_level)
+        user.coins -= cost
+        user.exchange_capacity_level = next_level
+        self.user_repo.update(user)
+
+        return {
+            "success": True,
+            "message": (
+                f"交易所仓库升级成功！等级 {current_level} → {next_level}，"
+                f"容量 {old_capacity} → {new_capacity}，消耗 {cost:,} 金币"
+            ),
+            "old_capacity": old_capacity,
+            "new_capacity": new_capacity,
+            "level": next_level,
+            "multiplier": self.CAPACITY_LEVEL_MULTIPLIERS[next_level],
         }
 
     def get_user_commodities(self, user_id: str) -> List[UserCommodity]:
@@ -96,7 +186,10 @@ class ExchangeInventoryService:
                 logger.info(f"用户 {user_id} 清理了 {cleared_count} 个腐败商品")
             
             # 检查容量限制
-            capacity = self.config.get("capacity", 1000)
+            capacity_info = self.get_capacity_info(user_id)
+            if not capacity_info["success"]:
+                return capacity_info
+            capacity = capacity_info["capacity"]
             current_quantity = self._get_user_total_commodity_quantity(user_id)
             
             if current_quantity + quantity > capacity:

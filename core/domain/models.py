@@ -36,6 +36,7 @@ class Bait:
     garbage_reduction_modifier: float = 0.0 # 垃圾鱼出现几率减少
     value_modifier: float = 1.0 # 渔获价值加成
     quantity_modifier: float = 1.0 # 渔获数量加成
+    weight_modifier: float = 1.0 # 渔获最大重量潜力加成
     is_consumable: bool = True # 是否消耗品
 
 
@@ -215,6 +216,7 @@ class User:
     aquarium_capacity: int = 50  # 水族箱容量
     fishing_zone_id: int = 1  # 默认钓鱼区域ID
     exchange_account_status: bool = False # 交易所账户状态
+    exchange_capacity_level: int = 0  # 交易所仓库升级等级
 
     max_wipe_bomb_multiplier: float = 0.0
     min_wipe_bomb_multiplier: Optional[float] = None

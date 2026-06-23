@@ -18,6 +18,14 @@ from ..domain.models import MarketListing, TaxRecord
 
 class MarketService:
     """封装与玩家交易市场相关的业务逻辑"""
+
+    EXCHANGE_CAPACITY_LEVEL_MULTIPLIERS = {
+        0: 1.0,
+        1: 1.5,
+        2: 2.0,
+        3: 2.5,
+        4: 3.0,
+    }
     
 
     def __init__(
@@ -58,6 +66,20 @@ class MarketService:
             )
             self.user_repo.add(market_user)
             logger.info("创建虚拟市场用户(MARKET)用于托管上架装备")
+
+    def _get_user_exchange_capacity(self, user) -> int:
+        base_capacity = int(self.config.get("exchange", {}).get("capacity", 1000))
+        level = max(0, min(getattr(user, "exchange_capacity_level", 0), max(self.EXCHANGE_CAPACITY_LEVEL_MULTIPLIERS)))
+        return int(base_capacity * self.EXCHANGE_CAPACITY_LEVEL_MULTIPLIERS.get(level, 1.0))
+
+    def _get_user_total_commodity_quantity(self, user_id: str) -> int:
+        inventory_quantity = sum(item.quantity for item in self.exchange_repo.get_user_commodities(user_id))
+        market_quantity = 0
+        listings, _ = self.market_repo.get_all_listings()
+        for listing in listings:
+            if listing.user_id == user_id and listing.item_type == "commodity":
+                market_quantity += listing.quantity
+        return inventory_quantity + market_quantity
 
     def cleanup_expired_listings(self):
         """
@@ -211,16 +233,7 @@ class MarketService:
         
         commodity_template = self.exchange_repo.get_commodity_by_id(user_commodity.commodity_id)
         item_template_id = user_commodity.commodity_id
-        
-        # 计算剩余数量
-        remaining_quantity = user_commodity.quantity - quantity
-        
-        # 从用户库存中扣除
-        if remaining_quantity > 0:
-            self.exchange_repo.update_user_commodity_quantity(item_instance_id, remaining_quantity)
-        else:
-            self.exchange_repo.delete_user_commodity(item_instance_id)
-        
+
         return {
             "success": True,
             "item_template_id": item_template_id,
@@ -243,7 +256,14 @@ class MarketService:
         elif item_type == "fish":
             self.inventory_repo.update_fish_quantity(user_id, item_instance_id, -quantity, quality_level)
         elif item_type == "commodity":
-            self.exchange_repo.delete_user_commodity(item_instance_id)
+            user_commodity = self.exchange_repo.get_user_commodity_by_instance_id(item_instance_id)
+            if not user_commodity or user_commodity.user_id != user_id:
+                raise ValueError("大宗商品不存在或不属于你")
+            remaining_quantity = user_commodity.quantity - quantity
+            if remaining_quantity > 0:
+                self.exchange_repo.update_user_commodity_quantity(item_instance_id, remaining_quantity)
+            else:
+                self.exchange_repo.delete_user_commodity(item_instance_id)
 
     def put_item_on_sale(self, user_id: str, item_type: str, item_instance_id: int, price: int, is_anonymous: bool = False, quantity: int = 1, quality_level: int = 0) -> Dict[str, Any]:
         """
@@ -263,14 +283,17 @@ class MarketService:
             return {"success": False, "message": "上架价格必须大于0"}
         if quantity <= 0:
             return {"success": False, "message": "上架数量必须大于0"}
+        if item_type in ["rod", "accessory"] and quantity != 1:
+            return {"success": False, "message": "鱼竿和饰品为独立装备，每次只能上架 1 件"}
 
         seller = self.user_repo.get_by_id(user_id)
         if not seller:
             return {"success": False, "message": "用户不存在"}
 
         # 计算并检查上架税
+        total_price = price * quantity
         tax_rate = self.config.get("market", {}).get("listing_tax_rate", 0.02)
-        tax_cost = int(price * tax_rate)
+        tax_cost = int(total_price * tax_rate)
         if not seller.can_afford(tax_cost):
             return {"success": False, "message": f"金币不足以支付上架手续费: {tax_cost} 金币"}
 
@@ -300,7 +323,7 @@ class MarketService:
         # 记录税收日志
         tax_log = TaxRecord(
             tax_id=0, user_id=user_id, tax_amount=tax_cost, tax_rate=tax_rate,
-            original_amount=price, balance_after=seller.coins, tax_type="市场交易税",
+            original_amount=total_price, balance_after=seller.coins, tax_type="市场交易税",
             timestamp=datetime.now()
         )
         self.log_repo.add_tax_record(tax_log)
@@ -328,8 +351,7 @@ class MarketService:
         # 返回成功消息
         item_name = validation_result["item_name"]
         if quantity > 1:
-            total_price = price * quantity
-            return {"success": True, "message": f"成功将【{item_name}】上架市场 x{quantity}，总价 {total_price} 金币 (手续费: {tax_cost} 金币)"}
+            return {"success": True, "message": f"成功将【{item_name}】上架市场 x{quantity}，单价 {price} 金币，总价 {total_price} 金币 (手续费: {tax_cost} 金币)"}
         else:
             return {"success": True, "message": f"成功将【{item_name}】上架市场，单价 {price} 金币 (手续费: {tax_cost} 金币)"}
 
@@ -417,17 +439,19 @@ class MarketService:
         if not seller:
             return {"success": False, "message": "卖家信息丢失，交易无法进行"}
 
-        if not buyer.can_afford(listing.price):
-            return {"success": False, "message": f"金币不足，需要 {listing.price} 金币"}
+        total_price = listing.price * listing.quantity
+
+        if not buyer.can_afford(total_price):
+            return {"success": False, "message": f"金币不足，需要 {total_price} 金币"}
 
         # 使用事务处理确保数据一致性
         try:
             # 1. 从买家扣款
-            buyer.coins -= listing.price
+            buyer.coins -= total_price
             self.user_repo.update(buyer)
 
             # 2. 给卖家打款
-            seller.coins += listing.price
+            seller.coins += total_price
             self.user_repo.update(seller)
 
             # 3. 将物品发给买家
@@ -435,11 +459,24 @@ class MarketService:
                 # 检查买家是否有交易所账户
                 if not buyer.exchange_account_status:
                     # 回滚交易
-                    buyer.coins += listing.price
-                    seller.coins -= listing.price
+                    buyer.coins += total_price
+                    seller.coins -= total_price
                     self.user_repo.update(buyer)
                     self.user_repo.update(seller)
                     return {"success": False, "message": "您需要先开通交易所账户才能购买大宗商品"}
+
+                buyer_capacity = self._get_user_exchange_capacity(buyer)
+                buyer_current_quantity = self._get_user_total_commodity_quantity(buyer_id)
+                if buyer_current_quantity + listing.quantity > buyer_capacity:
+                    # 回滚交易
+                    buyer.coins += total_price
+                    seller.coins -= total_price
+                    self.user_repo.update(buyer)
+                    self.user_repo.update(seller)
+                    return {
+                        "success": False,
+                        "message": f"交易所仓库容量不足，当前持仓: {buyer_current_quantity}/{buyer_capacity}"
+                    }
 
                 # 如果没有腐败时间，使用默认值（兼容旧数据）
                 expires_at = listing.expires_at or datetime.now() + timedelta(days=3)
@@ -481,7 +518,7 @@ class MarketService:
             if listing.item_type == "fish" and listing.quality_level == 1:
                 quality_text = " ✨高品质"
             
-            message = f"✅ 成功购买【{listing.item_name}{quality_text}】{quantity_text}，花费 {listing.price} 金币！"
+            message = f"✅ 成功购买【{listing.item_name}{quality_text}】{quantity_text}，花费 {total_price} 金币！"
             # 如果是鱼类，提示用户去水族箱查收
             if listing.item_type == "fish":
                 message += "\n🐠 请前往水族箱查收您的鱼类！"
@@ -491,8 +528,8 @@ class MarketService:
         except Exception as e:
             # 回滚交易
             try:
-                buyer.coins += listing.price
-                seller.coins -= listing.price
+                buyer.coins += total_price
+                seller.coins -= total_price
                 self.user_repo.update(buyer)
                 self.user_repo.update(seller)
             except Exception as rollback_error:
@@ -516,7 +553,8 @@ class MarketService:
         elif listing.item_type == "commodity":
             from ..domain.models import UserCommodity
             # 检查卖家交易所容量
-            capacity = self.config.get("exchange", {}).get("capacity", 1000)
+            seller = self.user_repo.get_by_id(listing.user_id)
+            capacity = self._get_user_exchange_capacity(seller) if seller else int(self.config.get("exchange", {}).get("capacity", 1000))
             user_commodities = self.exchange_repo.get_user_commodities(listing.user_id)
             current_total_quantity = sum(item.quantity for item in user_commodities)
             if current_total_quantity + listing.quantity > capacity:

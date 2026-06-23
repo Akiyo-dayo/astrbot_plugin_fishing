@@ -829,6 +829,23 @@ class InventoryService:
         if not bait_template:
             return {"success": False, "message": "鱼饵信息不存在"}
 
+        required_rod_rarity = getattr(bait_template, "required_rod_rarity", 0) or 0
+        if required_rod_rarity > 0:
+            equipped_rod = self.inventory_repo.get_user_equipped_rod(user_id)
+            if not equipped_rod:
+                return {
+                    "success": False,
+                    "message": f"使用【{bait_template.name}】需要装备 {required_rod_rarity} 星及以上鱼竿"
+                }
+
+            rod_template = self.item_template_repo.get_rod_by_id(equipped_rod.rod_id)
+            if not rod_template or rod_template.rarity < required_rod_rarity:
+                current_rarity = rod_template.rarity if rod_template else 0
+                return {
+                    "success": False,
+                    "message": f"使用【{bait_template.name}】需要 {required_rod_rarity} 星及以上鱼竿，当前鱼竿为 {current_rarity} 星"
+                }
+
         # 更新用户当前鱼饵状态
         user.current_bait_id = bait_id
         user.bait_start_time = datetime.now()
