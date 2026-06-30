@@ -1,10 +1,10 @@
 import sqlite3
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from astrbot.api import logger
 
-from ..domain.bank_models import BankAccount, BankWithdrawReservation
+from ..domain.bank_models import BankAccount, BankFixedDeposit, BankWithdrawReservation
 
 
 class SqliteBankRepository:
@@ -41,6 +41,18 @@ class SqliteBankRepository:
                 except ValueError:
                     pass
         return BankWithdrawReservation(**data)
+
+    def _row_to_fixed_deposit(self, row: sqlite3.Row) -> Optional[BankFixedDeposit]:
+        if not row:
+            return None
+        data = dict(row)
+        for key in ("started_at", "matures_at", "completed_at", "created_at", "updated_at"):
+            if isinstance(data.get(key), str):
+                try:
+                    data[key] = datetime.fromisoformat(data[key])
+                except ValueError:
+                    pass
+        return BankFixedDeposit(**data)
 
     def ensure_account(self, user_id: str) -> BankAccount:
         with self._connect() as conn:
@@ -308,6 +320,166 @@ class SqliteBankRepository:
             except Exception as e:
                 conn.rollback()
                 logger.error(f"取消银行取款预约失败: {e}")
+                raise
+
+    def get_fixed_deposits(self, user_id: str, limit: int = 10) -> List[BankFixedDeposit]:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM bank_fixed_deposits
+                WHERE user_id = ?
+                ORDER BY
+                    CASE status WHEN 'active' THEN 0 WHEN 'completed' THEN 1 ELSE 2 END,
+                    matures_at ASC,
+                    deposit_id DESC
+                LIMIT ?
+            """, (user_id, limit))
+            return [self._row_to_fixed_deposit(row) for row in cursor.fetchall()]
+
+    def get_active_fixed_deposit_count(self, user_id: str) -> int:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) AS cnt FROM bank_fixed_deposits
+                WHERE user_id = ? AND status = 'active'
+            """, (user_id,))
+            return cursor.fetchone()["cnt"]
+
+    def create_fixed_deposit(
+        self,
+        user_id: str,
+        principal: int,
+        term_days: int,
+        interest_rate: float,
+        expected_interest: int,
+        matures_at: datetime,
+        max_active: int,
+    ) -> Tuple[bool, str, Optional[BankFixedDeposit], Optional[BankAccount]]:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                self._ensure_account(cursor, user_id)
+                account = self._get_account_with_cursor(cursor, user_id)
+                if not account or account.balance < principal:
+                    conn.rollback()
+                    return False, "银行活期余额不足", None, account
+
+                cursor.execute("""
+                    SELECT COUNT(*) AS cnt FROM bank_fixed_deposits
+                    WHERE user_id = ? AND status = 'active'
+                """, (user_id,))
+                if cursor.fetchone()["cnt"] >= max_active:
+                    conn.rollback()
+                    return False, "进行中的定期存款数量已达上限", None, account
+
+                now = datetime.now()
+                cursor.execute("""
+                    UPDATE bank_accounts
+                    SET balance = balance - ?, updated_at = ?
+                    WHERE user_id = ?
+                """, (principal, now, user_id))
+                cursor.execute("""
+                    INSERT INTO bank_fixed_deposits (
+                        user_id, principal, term_days, interest_rate, expected_interest,
+                        status, started_at, matures_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                """, (
+                    user_id, principal, term_days, interest_rate, expected_interest,
+                    now, matures_at, now, now,
+                ))
+                deposit_id = cursor.lastrowid
+                cursor.execute("SELECT * FROM bank_fixed_deposits WHERE deposit_id = ?", (deposit_id,))
+                deposit = self._row_to_fixed_deposit(cursor.fetchone())
+                account = self._get_account_with_cursor(cursor, user_id)
+                conn.commit()
+                return True, "ok", deposit, account
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"创建银行定期存款失败: {e}")
+                raise
+
+    def complete_fixed_deposit(
+        self, user_id: str, deposit_id: int
+    ) -> Tuple[bool, str, Optional[BankFixedDeposit], Optional[BankAccount]]:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                self._ensure_account(cursor, user_id)
+                cursor.execute("""
+                    SELECT * FROM bank_fixed_deposits
+                    WHERE deposit_id = ? AND user_id = ? AND status = 'active'
+                """, (deposit_id, user_id))
+                deposit = self._row_to_fixed_deposit(cursor.fetchone())
+                if not deposit:
+                    conn.rollback()
+                    return False, "未找到可领取的定期存款", None, None
+
+                now = datetime.now()
+                if deposit.matures_at > now:
+                    conn.rollback()
+                    return False, "定期存款尚未到期", deposit, None
+
+                payout = deposit.principal + deposit.expected_interest
+                cursor.execute("""
+                    UPDATE bank_accounts
+                    SET balance = balance + ?, updated_at = ?
+                    WHERE user_id = ?
+                """, (payout, now, user_id))
+                cursor.execute("""
+                    UPDATE bank_fixed_deposits
+                    SET status = 'completed', completed_at = ?, updated_at = ?
+                    WHERE deposit_id = ?
+                """, (now, now, deposit_id))
+                cursor.execute("SELECT * FROM bank_fixed_deposits WHERE deposit_id = ?", (deposit_id,))
+                deposit = self._row_to_fixed_deposit(cursor.fetchone())
+                account = self._get_account_with_cursor(cursor, user_id)
+                conn.commit()
+                return True, "ok", deposit, account
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"领取银行定期存款失败: {e}")
+                raise
+
+    def cancel_fixed_deposit(
+        self, user_id: str, deposit_id: int, penalty_amount: int
+    ) -> Tuple[bool, str, Optional[BankFixedDeposit], Optional[BankAccount], int]:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                self._ensure_account(cursor, user_id)
+                cursor.execute("""
+                    SELECT * FROM bank_fixed_deposits
+                    WHERE deposit_id = ? AND user_id = ? AND status = 'active'
+                """, (deposit_id, user_id))
+                deposit = self._row_to_fixed_deposit(cursor.fetchone())
+                if not deposit:
+                    conn.rollback()
+                    return False, "未找到可提前取出的定期存款", None, None, 0
+
+                penalty_amount = max(0, min(penalty_amount, deposit.principal))
+                payout = deposit.principal - penalty_amount
+                now = datetime.now()
+                cursor.execute("""
+                    UPDATE bank_accounts
+                    SET balance = balance + ?, updated_at = ?
+                    WHERE user_id = ?
+                """, (payout, now, user_id))
+                cursor.execute("""
+                    UPDATE bank_fixed_deposits
+                    SET status = 'cancelled', completed_at = ?, updated_at = ?
+                    WHERE deposit_id = ?
+                """, (now, now, deposit_id))
+                cursor.execute("SELECT * FROM bank_fixed_deposits WHERE deposit_id = ?", (deposit_id,))
+                deposit = self._row_to_fixed_deposit(cursor.fetchone())
+                account = self._get_account_with_cursor(cursor, user_id)
+                conn.commit()
+                return True, "ok", deposit, account, penalty_amount
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"提前取出银行定期存款失败: {e}")
                 raise
 
     def _reset_daily_withdrawal_with_cursor(

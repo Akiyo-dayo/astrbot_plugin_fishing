@@ -108,6 +108,68 @@
         "type": "int",
         "hint": "每个用户最多可同时持有的待确认预约数量",
         "default": 1
+      },
+      "fixed_deposit": {
+        "description": "银行定期存款配置",
+        "type": "object",
+        "items": {
+          "enabled": {
+            "description": "是否启用定期存款",
+            "type": "bool",
+            "hint": "关闭后定期存款相关命令不可用",
+            "default": true
+          },
+          "min_amount": {
+            "description": "单笔定期最低金额",
+            "type": "int",
+            "hint": "低于此金额不能创建定期存款",
+            "default": 100000
+          },
+          "max_amount": {
+            "description": "单笔定期最高金额",
+            "type": "int",
+            "hint": "高于此金额不能创建定期存款",
+            "default": 20000000
+          },
+          "max_active_deposits": {
+            "description": "最大进行中定期数量",
+            "type": "int",
+            "hint": "每个用户最多可同时持有的进行中定期存款数量",
+            "default": 5
+          },
+          "early_withdraw_penalty_rate": {
+            "description": "提前取出违约金率",
+            "type": "float",
+            "hint": "提前取出时对本金收取的违约金率，默认0表示不收",
+            "default": 0.0,
+            "min": 0.0,
+            "max": 1.0
+          },
+          "terms": {
+            "description": "定期档位收益率",
+            "type": "object",
+            "items": {
+              "1": {
+                "description": "1天定期收益率",
+                "type": "float",
+                "hint": "例如0.002表示0.2%",
+                "default": 0.002
+              },
+              "3": {
+                "description": "3天定期收益率",
+                "type": "float",
+                "hint": "例如0.008表示0.8%",
+                "default": 0.008
+              },
+              "7": {
+                "description": "7天定期收益率",
+                "type": "float",
+                "hint": "例如0.02表示2%",
+                "default": 0.02
+              }
+            }
+          }
+        }
       }
     }
   },

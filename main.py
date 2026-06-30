@@ -226,6 +226,7 @@ class FishingPlugin(Star):
                 "reservation_threshold": bank_config.get("reservation_threshold", 5000000),
                 "reservation_delay_hours": bank_config.get("reservation_delay_hours", 24),
                 "max_pending_reservations": bank_config.get("max_pending_reservations", 1),
+                "fixed_deposit": bank_config.get("fixed_deposit", {}),
             },
         }
         
@@ -830,21 +831,21 @@ class FishingPlugin(Star):
         async for r in inventory_handlers.coins(self, event):
             yield r
 
-    @filter.command("银行")
+    @filter.command("钓鱼银行")
     async def bank(self, event: AstrMessageEvent):
-        """查看银行账户或进行银行操作。用法：银行 [存款/取款/预约取款/确认预约/取消预约] [金额]"""
+        """查看银行账户或进行银行操作。用法：钓鱼银行 [存款/取款/预约取款/确认预约/取消预约/定期] [金额]"""
         async for r in bank_handlers.bank_main(self, event):
             yield r
 
-    @filter.command("存款")
+    @filter.command("钓鱼存款")
     async def bank_deposit(self, event: AstrMessageEvent):
-        """快捷存款。用法：存款 金额"""
+        """快捷存款。用法：钓鱼存款 金额"""
         async for r in bank_handlers.deposit(self, event):
             yield r
 
-    @filter.command("取款")
+    @filter.command("钓鱼取款")
     async def bank_withdraw(self, event: AstrMessageEvent):
-        """快捷取款。用法：取款 金额"""
+        """快捷取款。用法：钓鱼取款 金额"""
         async for r in bank_handlers.withdraw(self, event):
             yield r
 

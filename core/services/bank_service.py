@@ -36,6 +36,27 @@ class BankService:
     def _max_pending_reservations(self) -> int:
         return int(self.bank_config.get("max_pending_reservations", 1))
 
+    def _fixed_deposit_config(self) -> Dict[str, Any]:
+        return self.bank_config.get("fixed_deposit", {})
+
+    def _fixed_deposit_enabled(self) -> bool:
+        return self._fixed_deposit_config().get("enabled", True)
+
+    def _fixed_min_amount(self) -> int:
+        return int(self._fixed_deposit_config().get("min_amount", 100_000))
+
+    def _fixed_max_amount(self) -> int:
+        return int(self._fixed_deposit_config().get("max_amount", 20_000_000))
+
+    def _fixed_max_active(self) -> int:
+        return int(self._fixed_deposit_config().get("max_active_deposits", 5))
+
+    def _fixed_terms(self) -> Dict[str, float]:
+        return self._fixed_deposit_config().get("terms", {"1": 0.002, "3": 0.008, "7": 0.02})
+
+    def _early_withdraw_penalty_rate(self) -> float:
+        return float(self._fixed_deposit_config().get("early_withdraw_penalty_rate", 0.0))
+
     def _reset_date(self) -> str:
         reset_hour = self.config.get("daily_reset_hour", 0)
         return get_last_reset_time(reset_hour).date().isoformat()
@@ -58,12 +79,14 @@ class BankService:
             return {"success": False, "message": "用户不存在，请先注册"}
         account = self._refresh_account(user_id)
         pending = self.bank_repo.get_pending_reservation(user_id)
+        fixed_count = self.bank_repo.get_active_fixed_deposit_count(user_id)
         free_remaining = max(self._daily_free_limit() - account.today_withdrawn, 0)
         return {
             "success": True,
             "user": user,
             "account": account,
             "pending": pending,
+            "fixed_count": fixed_count,
             "free_remaining": free_remaining,
             "daily_free_limit": self._daily_free_limit(),
             "withdraw_fee_rate": self._withdraw_fee_rate(),
@@ -101,7 +124,7 @@ class BankService:
                 "success": False,
                 "message": (
                     f"❌ 单笔取款达到 {self._reservation_threshold():,} 金币需要预约。\n"
-                    f"💡 请使用：/银行 预约取款 {amount}"
+                    f"💡 请使用：/钓鱼银行 预约取款 {amount}"
                 ),
             }
 
@@ -133,7 +156,7 @@ class BankService:
                 "success": False,
                 "message": (
                     f"❌ 低于 {self._reservation_threshold():,} 金币无需预约。\n"
-                    f"💡 请直接使用：/银行 取款 {amount}"
+                    f"💡 请直接使用：/钓鱼银行 取款 {amount}"
                 ),
             }
         account = self._refresh_account(user_id)
@@ -155,9 +178,144 @@ class BankService:
                 f"💰 预约金额：{amount:,} 金币\n"
                 f"💸 预计手续费：{fee_amount:,} 金币\n"
                 f"⏱️ 可确认时间：{ready_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"💡 到时使用：/银行 确认预约"
+                f"💡 到时使用：/钓鱼银行 确认预约"
             ),
             "reservation": reservation,
+        }
+
+    def get_fixed_terms(self) -> Dict[str, Any]:
+        if not self.is_enabled():
+            return {"success": False, "message": "银行系统暂未启用"}
+        if not self._fixed_deposit_enabled():
+            return {"success": False, "message": "银行定期存款暂未启用"}
+        terms = {
+            int(days): float(rate)
+            for days, rate in self._fixed_terms().items()
+        }
+        return {
+            "success": True,
+            "terms": terms,
+            "min_amount": self._fixed_min_amount(),
+            "max_amount": self._fixed_max_amount(),
+            "max_active": self._fixed_max_active(),
+            "early_withdraw_penalty_rate": self._early_withdraw_penalty_rate(),
+        }
+
+    def create_fixed_deposit(self, user_id: str, amount: int, term_days: int) -> Dict[str, Any]:
+        if not self.is_enabled():
+            return {"success": False, "message": "银行系统暂未启用"}
+        if not self._fixed_deposit_enabled():
+            return {"success": False, "message": "银行定期存款暂未启用"}
+        if not self.user_repo.get_by_id(user_id):
+            return {"success": False, "message": "用户不存在，请先注册"}
+        if amount <= 0:
+            return {"success": False, "message": "定期存款金额必须大于0"}
+        if amount < self._fixed_min_amount():
+            return {"success": False, "message": f"定期存款最低金额为 {self._fixed_min_amount():,} 金币"}
+        if amount > self._fixed_max_amount():
+            return {"success": False, "message": f"定期存款最高金额为 {self._fixed_max_amount():,} 金币"}
+
+        terms = self._fixed_terms()
+        term_key = str(term_days)
+        if term_key not in terms:
+            available = "、".join(sorted(terms.keys(), key=lambda x: int(x)))
+            return {"success": False, "message": f"不支持的定期天数，可选：{available} 天"}
+
+        interest_rate = float(terms[term_key])
+        expected_interest = int(amount * interest_rate)
+        matures_at = datetime.now() + timedelta(days=term_days)
+        success, message, deposit, account = self.bank_repo.create_fixed_deposit(
+            user_id=user_id,
+            principal=amount,
+            term_days=term_days,
+            interest_rate=interest_rate,
+            expected_interest=expected_interest,
+            matures_at=matures_at,
+            max_active=self._fixed_max_active(),
+        )
+        if not success:
+            return {"success": False, "message": message}
+        return {
+            "success": True,
+            "message": (
+                f"✅ 定期存款创建成功！\n"
+                f"🧾 编号：#{deposit.deposit_id}\n"
+                f"💰 本金：{amount:,} 金币\n"
+                f"📈 到期收益：{expected_interest:,} 金币（{interest_rate * 100:.2f}%）\n"
+                f"⏱️ 到期时间：{matures_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"🏦 活期余额：{account.balance:,} 金币"
+            ),
+            "deposit": deposit,
+            "account": account,
+        }
+
+    def list_fixed_deposits(self, user_id: str) -> Dict[str, Any]:
+        if not self.is_enabled():
+            return {"success": False, "message": "银行系统暂未启用"}
+        if not self._fixed_deposit_enabled():
+            return {"success": False, "message": "银行定期存款暂未启用"}
+        deposits = self.bank_repo.get_fixed_deposits(user_id)
+        return {
+            "success": True,
+            "deposits": deposits,
+            "terms": self.get_fixed_terms(),
+        }
+
+    def complete_fixed_deposit(self, user_id: str, deposit_id: int) -> Dict[str, Any]:
+        if not self.is_enabled():
+            return {"success": False, "message": "银行系统暂未启用"}
+        if not self._fixed_deposit_enabled():
+            return {"success": False, "message": "银行定期存款暂未启用"}
+        success, message, deposit, account = self.bank_repo.complete_fixed_deposit(user_id, deposit_id)
+        if not success:
+            if deposit and message == "定期存款尚未到期":
+                return {
+                    "success": False,
+                    "message": f"❌ 定期存款尚未到期。\n⏱️ 到期时间：{deposit.matures_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                }
+            return {"success": False, "message": message}
+        payout = deposit.principal + deposit.expected_interest
+        return {
+            "success": True,
+            "message": (
+                f"✅ 定期存款领取成功！\n"
+                f"🧾 编号：#{deposit.deposit_id}\n"
+                f"💰 本金：{deposit.principal:,} 金币\n"
+                f"📈 收益：{deposit.expected_interest:,} 金币\n"
+                f"📥 入账活期：{payout:,} 金币\n"
+                f"🏦 活期余额：{account.balance:,} 金币"
+            ),
+            "deposit": deposit,
+            "account": account,
+        }
+
+    def cancel_fixed_deposit(self, user_id: str, deposit_id: int) -> Dict[str, Any]:
+        if not self.is_enabled():
+            return {"success": False, "message": "银行系统暂未启用"}
+        if not self._fixed_deposit_enabled():
+            return {"success": False, "message": "银行定期存款暂未启用"}
+        deposit_candidates = self.bank_repo.get_fixed_deposits(user_id, limit=50)
+        target = next((d for d in deposit_candidates if d.deposit_id == deposit_id and d.status == "active"), None)
+        penalty_amount = int(target.principal * self._early_withdraw_penalty_rate()) if target else 0
+        success, message, deposit, account, penalty_amount = self.bank_repo.cancel_fixed_deposit(
+            user_id, deposit_id, penalty_amount
+        )
+        if not success:
+            return {"success": False, "message": message}
+        returned_amount = deposit.principal - penalty_amount
+        return {
+            "success": True,
+            "message": (
+                f"✅ 定期存款已提前取出。\n"
+                f"🧾 编号：#{deposit.deposit_id}\n"
+                f"💰 返还本金：{returned_amount:,} 金币\n"
+                f"📈 到期收益：0 金币\n"
+                f"💸 违约金：{penalty_amount:,} 金币\n"
+                f"🏦 活期余额：{account.balance:,} 金币"
+            ),
+            "deposit": deposit,
+            "account": account,
+            "penalty_amount": penalty_amount,
         }
 
     def confirm_reservation(self, user_id: str) -> Dict[str, Any]:

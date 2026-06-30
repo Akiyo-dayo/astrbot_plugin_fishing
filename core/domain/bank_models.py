@@ -27,3 +27,19 @@ class BankWithdrawReservation:
     ready_at: datetime
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+@dataclass
+class BankFixedDeposit:
+    deposit_id: Optional[int]
+    user_id: str
+    principal: int
+    term_days: int
+    interest_rate: float
+    expected_interest: int
+    status: str
+    started_at: datetime
+    matures_at: datetime
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
