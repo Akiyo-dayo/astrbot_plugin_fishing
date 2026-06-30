@@ -22,6 +22,7 @@ from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
 from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository
 from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository
 from .core.repositories.sqlite_loan_repo import SqliteLoanRepository
+from .core.repositories.sqlite_bank_repo import SqliteBankRepository
 
 from .core.services.data_setup_service import DataSetupService
 from .core.services.item_template_service import ItemTemplateService
@@ -42,6 +43,7 @@ from .core.services.loan_service import LoanService
 from .core.services.fish_weight_service import FishWeightService # 新增钓鱼权重Service
 from .core.services.blackjack_service import BlackjackService  # 新增21点游戏Service
 from .core.services.slot_service import SlotService  # 拉杆机Service
+from .core.services.bank_service import BankService
 
 from .core.database.migration import run_migrations
 
@@ -62,6 +64,7 @@ from .handlers import (
     loan_handlers,
     blackjack_handlers,  # 新增21点游戏处理器
     slot_handlers,  # 拉杆机处理器
+    bank_handlers,
 )
 from .handlers.fishing_handlers import FishingHandlers
 from .handlers.exchange_handlers import ExchangeHandlers
@@ -119,6 +122,7 @@ class FishingPlugin(Star):
         market_config = config.get("market", {})
         sell_prices_config = config.get("sell_prices", {})
         loan_config = config.get("loan", {})  # 新增借贷配置
+        bank_config = config.get("bank", {})
         
         # 直接从框架获取 exchange 配置（不重建）
         exchange_config = config.get("exchange", {})
@@ -215,6 +219,14 @@ class FishingPlugin(Star):
             "sicbo": config.get("sicbo", {}),  # 骰宝配置
             "blackjack": config.get("blackjack", {}),  # 21点配置
             "slot": config.get("slot", {}),  # 拉杆机配置
+            "bank": {
+                "enabled": bank_config.get("enabled", True),
+                "daily_free_withdraw_limit": bank_config.get("daily_free_withdraw_limit", 1000000),
+                "withdraw_fee_rate": bank_config.get("withdraw_fee_rate", 0.03),
+                "reservation_threshold": bank_config.get("reservation_threshold", 5000000),
+                "reservation_delay_hours": bank_config.get("reservation_delay_hours", 24),
+                "max_pending_reservations": bank_config.get("max_pending_reservations", 1),
+            },
         }
         
         # 初始化数据库模式
@@ -233,6 +245,7 @@ class FishingPlugin(Star):
         self.achievement_repo = SqliteAchievementRepository(db_path)
         self.buff_repo = SqliteUserBuffRepository(db_path)
         self.exchange_repo = SqliteExchangeRepository(db_path)
+        self.bank_repo = SqliteBankRepository(db_path)
 
         # --- 3. 组合根：实例化所有服务层，并注入依赖 ---
         # 3.1 核心服务必须在效果管理器之前实例化，以解决依赖问题
@@ -294,6 +307,7 @@ class FishingPlugin(Star):
         
         # 初始化拉杆机服务
         self.slot_service = SlotService(self.user_repo, self.log_repo, self.game_config, data_dir=self.data_dir)
+        self.bank_service = BankService(self.bank_repo, self.user_repo, self.log_repo, self.game_config)
         
         # 让骰宝的记录也写入统一的读博记录
         self.sicbo_service.set_gambling_record_callback(self.blackjack_service._add_gambling_record)
@@ -814,6 +828,24 @@ class FishingPlugin(Star):
     async def coins(self, event: AstrMessageEvent):
         """查看你当前拥有的金币数量"""
         async for r in inventory_handlers.coins(self, event):
+            yield r
+
+    @filter.command("银行")
+    async def bank(self, event: AstrMessageEvent):
+        """查看银行账户或进行银行操作。用法：银行 [存款/取款/预约取款/确认预约/取消预约] [金额]"""
+        async for r in bank_handlers.bank_main(self, event):
+            yield r
+
+    @filter.command("存款")
+    async def bank_deposit(self, event: AstrMessageEvent):
+        """快捷存款。用法：存款 金额"""
+        async for r in bank_handlers.deposit(self, event):
+            yield r
+
+    @filter.command("取款")
+    async def bank_withdraw(self, event: AstrMessageEvent):
+        """快捷取款。用法：取款 金额"""
+        async for r in bank_handlers.withdraw(self, event):
             yield r
 
     @filter.command("转账", alias={"赠送"})

@@ -67,6 +67,50 @@
       }
     }
   },
+  "bank": {
+    "description": "银行系统配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "是否启用银行系统",
+        "type": "bool",
+        "hint": "关闭后银行相关命令不可用",
+        "default": true
+      },
+      "daily_free_withdraw_limit": {
+        "description": "每日免费提现额度",
+        "type": "int",
+        "hint": "超过该额度的取款部分会收取手续费",
+        "default": 1000000
+      },
+      "withdraw_fee_rate": {
+        "description": "超额取款手续费率",
+        "type": "float",
+        "hint": "仅对超过每日免费提现额度的部分收取，例如0.03表示3%",
+        "default": 0.03,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "reservation_threshold": {
+        "description": "大额取款预约门槛",
+        "type": "int",
+        "hint": "单笔取款达到该金额时需要先预约",
+        "default": 5000000
+      },
+      "reservation_delay_hours": {
+        "description": "大额取款预约等待小时数",
+        "type": "int",
+        "hint": "预约后需要等待多少小时才能确认取款",
+        "default": 24
+      },
+      "max_pending_reservations": {
+        "description": "最大待确认预约数",
+        "type": "int",
+        "hint": "每个用户最多可同时持有的待确认预约数量",
+        "default": 1
+      }
+    }
+  },
   "fishing": {
     "description": "钓鱼系统配置",
     "type": "object",
