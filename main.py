@@ -342,7 +342,7 @@ class FishingPlugin(Star):
         # 3.2 实例化效果管理器并自动注册所有效果（需要在fishing_service之后）
         self.effect_manager = EffectManager()
         self.effect_manager.discover_and_register(
-            effects_package_path="data.plugins.astrbot_plugin_fishing.core.services.item_effects",
+            effects_package_path=f"{__package__}.core.services.item_effects",
             dependencies={
                 "user_repo": self.user_repo, 
                 "buff_repo": self.buff_repo,
