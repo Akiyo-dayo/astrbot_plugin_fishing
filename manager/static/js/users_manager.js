@@ -229,6 +229,37 @@ document.addEventListener('DOMContentLoaded', function() {
         content.appendChild(row1);
         content.appendChild(row2);
 
+        const bank = data.bank || {};
+        const bankRow = document.createElement('div');
+        bankRow.className = 'row mt-3';
+        const bankCol = document.createElement('div');
+        bankCol.className = 'col-12';
+        const bankHeading = document.createElement('h6');
+        bankHeading.textContent = '银行信息';
+        bankCol.appendChild(bankHeading);
+        const bankTable = document.createElement('table');
+        bankTable.className = 'table table-sm';
+        const addBankRow = (label, value) => {
+            const tr = document.createElement('tr');
+            const td1 = document.createElement('td');
+            td1.innerHTML = '<strong>' + label + '</strong>';
+            const td2 = document.createElement('td');
+            td2.textContent = value;
+            tr.appendChild(td1);
+            tr.appendChild(td2);
+            bankTable.appendChild(tr);
+        };
+        const formatCoins = (value) => Number(value || 0).toLocaleString();
+        addBankRow('银行活期:', formatCoins(bank.account_balance) + ' 金币');
+        addBankRow('今日已取:', formatCoins(bank.today_withdrawn) + ' 金币');
+        addBankRow('进行中定期:', String(bank.active_fixed_count || 0) + ' 笔');
+        addBankRow('定期本金:', formatCoins(bank.active_fixed_principal) + ' 金币');
+        addBankRow('预计收益:', formatCoins(bank.active_expected_interest) + ' 金币');
+        addBankRow('下次到期:', bank.next_maturity || '-');
+        bankCol.appendChild(bankTable);
+        bankRow.appendChild(bankCol);
+        content.appendChild(bankRow);
+
         // 称号列表（仅查看，不提供编辑功能）
         const row3 = document.createElement('div'); row3.className = 'row mt-3';
         const col5 = document.createElement('div'); col5.className = 'col-12';
