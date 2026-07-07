@@ -8,14 +8,13 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### 💼 **v2.6.1 交易所容量成长 + 道具消耗 + 鱼饵重量加成**
+### 🐛 **v2.6.2 插件启动兼容性修复**
 
-🎯 **经济与钓鱼体验继续打磨！**
+🎯 **修复旧插件卸载后安装新版插件的启动报错！**
 
-📦 **交易所仓库升级** - 玩家可消耗金币提升大宗商品持仓容量<br>
-🛒 **市场批量流转优化** - 大宗商品按数量扣减，购买按总价结算并校验容量<br>
-🎁 **小钱袋可直接使用** - 作为消耗道具获得金币<br>
-🪱 **鱼饵重量潜力加成** - 巨物诱饵现在会提升渔获最大重量潜力<br>
+🔧 **迁移脚本动态加载** - 按实际插件目录加载数据库迁移，不再硬编码旧插件包名<br>
+✨ **道具效果动态发现** - 使用当前运行时包名注册道具效果，兼容 `astrbot_plugin_fishing_again`<br>
+🧪 **新增回归测试** - 覆盖迁移加载和效果包路径，防止同类问题复发<br>
 
 
 </div>
@@ -27,7 +26,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.6.1-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.1)
+[![Version](https://img.shields.io/badge/Version-2.6.2-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.2)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -107,7 +106,7 @@
 
 ## 📦 更新记录
 
-#### 🐛 **未发布：插件启动兼容性修复**
+#### 🐛 **v2.6.2 插件启动兼容性修复**
 
 - 修复从旧 `astrbot_plugin_fishing` 卸载后安装 `astrbot_plugin_fishing_again` 时，迁移脚本仍硬编码导入旧插件包导致启动失败的问题
 - 道具效果自动注册改为使用当前运行时包名，避免插件目录名变化后继续查找旧目录
