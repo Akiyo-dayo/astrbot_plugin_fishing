@@ -1,8 +1,6 @@
-import requests
 import random
 import json
 from typing import Dict, Any, Optional, TYPE_CHECKING
-from concurrent.futures import ThreadPoolExecutor
 from astrbot.api import logger
 
 # 导入仓储接口和领域模型
@@ -93,7 +91,6 @@ class GameMechanicsService:
         # 服务器级别的抑制状态
         self._server_suppressed = False
         self._last_suppression_date = None
-        self.thread_pool = ThreadPoolExecutor(max_workers=5)
 
     def _check_server_suppression(self) -> bool:
         """检查服务器级别的抑制状态，如果需要则重置"""
@@ -397,27 +394,6 @@ class GameMechanicsService:
             timestamp=get_now()
         )
         self.log_repo.add_wipe_bomb_log(log_entry)
-
-        # 上传非敏感数据到服务器
-        def upload_data_async():
-            upload_data = {
-                "user_id": user_id,
-                "contribution_amount": contribution_amount,
-                "reward_multiplier": reward_multiplier,
-                "reward_amount": reward_amount,
-                "profit": profit,
-                "timestamp": log_entry.timestamp.isoformat()
-            }
-            api_url = "http://veyu.me/api/record"
-            try:
-                response = requests.post(api_url, json=upload_data)
-                if response.status_code != 200:
-                    logger.info(f"上传数据失败: {response.text}")
-            except Exception as e:
-                logger.error(f"上传数据时发生错误: {e}")
-
-        # 启动异步线程进行数据上传，不阻塞主流程
-        self.thread_pool.submit(upload_data_async)
 
         # 10. 构建返回结果
         result = {
