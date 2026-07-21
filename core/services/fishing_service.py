@@ -893,10 +893,11 @@ class FishingService:
         min_rate = float(tax_config.get("min_rate", 0.001))
         max_rate = float(tax_config.get("max_rate", 0.2))
         asset_scope = tax_config.get("asset_scope", "wallet")
+        deduct_scope = tax_config.get("deduct_scope", "wallet")
         taxable_mode = tax_config.get("taxable_mode", "total")
         
         logger.info(
-            f"[税收-{execution_id}] 税收配置：起征点={threshold}, 资产范围={asset_scope}, "
+            f"[税收-{execution_id}] 税收配置：起征点={threshold}, 资产范围={asset_scope}, 扣款范围={deduct_scope}, "
             f"计税模式={taxable_mode}, 步长={step_coins}, 步长税率={step_rate*100}%, "
             f"最小税率={min_rate*100}%, 最大税率={max_rate*100}%"
         )
@@ -931,9 +932,13 @@ class FishingService:
             min_tax_amount = 1
             if tax_rate > 0 and taxable_base > 0:
                 requested_tax_amount = max(int(taxable_base * tax_rate), min_tax_amount)
-                tax_amount, balance_after = self._collect_daily_tax(user.user_id, requested_tax_amount, asset_scope)
-                if tax_amount <= 0:
-                    logger.warning(f"[税收-{execution_id}] 用户 {user.user_id} 可扣资产不足，跳过")
+                tax_amount, balance_after, debt_added = self._collect_daily_tax(
+                    user.user_id,
+                    requested_tax_amount,
+                    deduct_scope,
+                )
+                if tax_amount <= 0 and debt_added <= 0:
+                    logger.warning(f"[税收-{execution_id}] 用户 {user.user_id} 可扣资产不足且未产生欠税，跳过")
                     continue
 
                 tax_log = TaxRecord(
@@ -947,6 +952,18 @@ class FishingService:
                     tax_type="每日资产税"
                 )
                 self.log_repo.add_tax_record(tax_log)
+                if debt_added > 0:
+                    debt_log = TaxRecord(
+                        tax_id=0,
+                        user_id=user.user_id,
+                        tax_amount=debt_added,
+                        tax_rate=tax_rate,
+                        original_amount=assessed_assets,
+                        balance_after=balance_after,
+                        timestamp=get_now(),
+                        tax_type="每日资产税欠税",
+                    )
+                    self.log_repo.add_tax_record(debt_log)
                 
                 total_tax_collected += tax_amount
                 taxed_user_count += 1
@@ -961,16 +978,19 @@ class FishingService:
             ]
         return self.bank_repo.get_daily_tax_subjects(threshold, asset_scope)
 
-    def _collect_daily_tax(self, user_id: str, tax_amount: int, asset_scope: str):
-        if asset_scope == "wallet" or not self.bank_repo:
+    def _collect_daily_tax(self, user_id: str, tax_amount: int, deduct_scope: str):
+        if deduct_scope == "wallet" or not self.bank_repo:
             user = self.user_repo.get_by_id(user_id)
             if not user:
-                return 0, 0
+                return 0, 0, 0
             actual_tax = min(tax_amount, user.coins)
             user.coins -= actual_tax
             self.user_repo.update(user)
-            return actual_tax, user.coins
-        return self.bank_repo.collect_daily_tax(user_id, tax_amount)
+            debt_added = max(tax_amount - actual_tax, 0)
+            if debt_added > 0 and self.bank_repo:
+                self.bank_repo.add_tax_debt(user_id, debt_added)
+            return actual_tax, user.coins, debt_added
+        return self.bank_repo.collect_daily_tax(user_id, tax_amount, deduct_scope)
 
     def enforce_zone_pass_requirements_for_all_users(self) -> None:
         """

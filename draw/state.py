@@ -2,7 +2,6 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-import requests
 from io import BytesIO
 import time
 import json

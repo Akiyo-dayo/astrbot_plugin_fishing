@@ -11,6 +11,7 @@ from typing import Optional
 class BankAccount:
     user_id: str
     balance: int = 0
+    locked_balance: int = 0
     today_withdrawn: int = 0
     last_withdraw_reset_date: Optional[str] = None
     created_at: Optional[datetime] = None

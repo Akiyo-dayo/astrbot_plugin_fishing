@@ -39,6 +39,12 @@
         "hint": "wallet=只统计钱包；wallet_bank=钱包+银行活期；wallet_bank_fixed=钱包+银行活期+进行中定期本金",
         "default": "wallet"
       },
+      "deduct_scope": {
+        "description": "每日资产税扣款来源",
+        "type": "string",
+        "hint": "wallet=只从钱包扣；bank=只从银行活期可用余额扣；wallet_bank=钱包优先，不足再扣银行活期可用余额",
+        "default": "wallet"
+      },
       "taxable_mode": {
         "description": "每日资产税计税模式",
         "type": "string",
@@ -76,6 +82,18 @@
         "default": 0.05,
         "min": 0.0,
         "max": 1.0
+      },
+      "tax_record_retention_days": {
+        "description": "税收记录保留天数",
+        "type": "int",
+        "hint": "超过该天数的 taxes 明细会在新增税收记录时分批清理，欠税余额不会被清理",
+        "default": 90
+      },
+      "tax_record_cleanup_batch_size": {
+        "description": "税收记录单次清理条数",
+        "type": "int",
+        "hint": "新增税收记录时最多清理多少条过期 taxes 明细，避免单次清理阻塞过久",
+        "default": 1000
       }
     }
   },

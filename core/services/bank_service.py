@@ -67,6 +67,12 @@ class BankService:
     def _refresh_account(self, user_id: str):
         return self.bank_repo.reset_daily_withdrawal_if_needed(user_id, self._reset_date())
 
+    def _require_user(self, user_id: str):
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            return None, {"success": False, "message": "用户不存在，请先注册"}
+        return user, None
+
     def _calculate_fee(self, account, amount: int) -> int:
         free_limit = self._daily_free_limit()
         already_withdrawn = max(account.today_withdrawn, 0)
@@ -100,6 +106,9 @@ class BankService:
     def deposit(self, user_id: str, amount: int) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         if amount <= 0:
             return {"success": False, "message": "存款金额必须大于0"}
         success, message, account, wallet_after = self.bank_repo.deposit(user_id, amount)
@@ -120,6 +129,9 @@ class BankService:
     def withdraw(self, user_id: str, amount: int) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         if amount <= 0:
             return {"success": False, "message": "取款金额必须大于0"}
         if amount >= self._reservation_threshold():
@@ -133,25 +145,31 @@ class BankService:
 
         account = self._refresh_account(user_id)
         fee_amount = self._calculate_fee(account, amount)
-        success, message, account, wallet_after = self.bank_repo.withdraw(
+        success, message, account, wallet_after, debt_paid = self.bank_repo.withdraw(
             user_id, amount, fee_amount, self._reset_date()
         )
         if not success:
             return {"success": False, "message": message}
 
         self._record_withdraw_fee(user_id, fee_amount, amount, wallet_after)
+        self._record_tax_debt_payment(user_id, debt_paid, amount, wallet_after)
         net_amount = amount - fee_amount
+        net_after_debt = net_amount - debt_paid
         return {
             "success": True,
-            "message": self._format_withdraw_success(amount, fee_amount, net_amount, account.balance, wallet_after),
+            "message": self._format_withdraw_success(amount, fee_amount, net_after_debt, account.balance, wallet_after, debt_paid=debt_paid),
             "account": account,
             "wallet_after": wallet_after,
             "fee_amount": fee_amount,
+            "debt_paid": debt_paid,
         }
 
     def create_reservation(self, user_id: str, amount: int) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         if amount <= 0:
             return {"success": False, "message": "预约取款金额必须大于0"}
         if amount < self._reservation_threshold():
@@ -210,8 +228,9 @@ class BankService:
             return {"success": False, "message": "银行系统暂未启用"}
         if not self._fixed_deposit_enabled():
             return {"success": False, "message": "银行定期存款暂未启用"}
-        if not self.user_repo.get_by_id(user_id):
-            return {"success": False, "message": "用户不存在，请先注册"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         if amount <= 0:
             return {"success": False, "message": "定期存款金额必须大于0"}
         if amount < self._fixed_min_amount():
@@ -258,6 +277,9 @@ class BankService:
             return {"success": False, "message": "银行系统暂未启用"}
         if not self._fixed_deposit_enabled():
             return {"success": False, "message": "银行定期存款暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         deposits = self.bank_repo.get_fixed_deposits(user_id)
         return {
             "success": True,
@@ -275,12 +297,21 @@ class BankService:
     def get_fixed_deposits_for_admin(self, search: str = None, limit: int = 100):
         return self.bank_repo.get_fixed_deposits_for_admin(search=search or None, limit=limit)
 
+    def get_tax_debt_summary(self, user_id: str = None) -> Dict[str, int]:
+        return self.bank_repo.get_tax_debt_summary(user_id=user_id or None)
+
+    def get_tax_debts_for_admin(self, user_id: str = None, limit: int = 50):
+        return self.bank_repo.get_tax_debts_for_admin(user_id=user_id or None, limit=limit)
+
     def complete_fixed_deposit(self, user_id: str, deposit_id: int) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
         if not self._fixed_deposit_enabled():
             return {"success": False, "message": "银行定期存款暂未启用"}
-        success, message, deposit, account = self.bank_repo.complete_fixed_deposit(user_id, deposit_id)
+        _, error = self._require_user(user_id)
+        if error:
+            return error
+        success, message, deposit, account, debt_paid = self.bank_repo.complete_fixed_deposit(user_id, deposit_id)
         if not success:
             if deposit and message == "定期存款尚未到期":
                 return {
@@ -289,6 +320,8 @@ class BankService:
                 }
             return {"success": False, "message": message}
         payout = deposit.principal + deposit.expected_interest
+        net_payout = payout - debt_paid
+        self._record_tax_debt_payment(user_id, debt_paid, payout, account.balance)
         return {
             "success": True,
             "message": (
@@ -296,7 +329,8 @@ class BankService:
                 f"🧾 编号：#{deposit.deposit_id}\n"
                 f"💰 本金：{deposit.principal:,} 金币\n"
                 f"📈 收益：{deposit.expected_interest:,} 金币\n"
-                f"📥 入账活期：{payout:,} 金币\n"
+                f"📥 入账活期：{net_payout:,} 金币\n"
+                f"🧾 欠税补扣：{debt_paid:,} 金币\n"
                 f"🏦 活期余额：{account.balance:,} 金币"
             ),
             "deposit": deposit,
@@ -308,25 +342,31 @@ class BankService:
             return {"success": False, "message": "银行系统暂未启用"}
         if not self._fixed_deposit_enabled():
             return {"success": False, "message": "银行定期存款暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         deposit_candidates = self.bank_repo.get_fixed_deposits(user_id, limit=50)
         target = next((d for d in deposit_candidates if d.deposit_id == deposit_id and d.status == "active"), None)
         penalty_amount = 0
         if target and target.principal > self._early_withdraw_penalty_threshold():
             penalty_amount = int(target.principal * self._early_withdraw_penalty_rate())
-        success, message, deposit, account, penalty_amount = self.bank_repo.cancel_fixed_deposit(
+        success, message, deposit, account, penalty_amount, debt_paid = self.bank_repo.cancel_fixed_deposit(
             user_id, deposit_id, penalty_amount
         )
         if not success:
             return {"success": False, "message": message}
         returned_amount = deposit.principal - penalty_amount
+        net_returned = returned_amount - debt_paid
+        self._record_tax_debt_payment(user_id, debt_paid, returned_amount, account.balance)
         return {
             "success": True,
             "message": (
                 f"✅ 定期存款已提前取出。\n"
                 f"🧾 编号：#{deposit.deposit_id}\n"
-                f"💰 返还本金：{returned_amount:,} 金币\n"
+                f"💰 返还本金：{net_returned:,} 金币\n"
                 f"📈 到期收益：0 金币\n"
                 f"💸 违约金：{penalty_amount:,} 金币\n"
+                f"🧾 欠税补扣：{debt_paid:,} 金币\n"
                 f"🏦 活期余额：{account.balance:,} 金币"
             ),
             "deposit": deposit,
@@ -337,7 +377,23 @@ class BankService:
     def confirm_reservation(self, user_id: str) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
-        success, message, reservation, account, wallet_after = self.bank_repo.complete_pending_reservation(
+        _, error = self._require_user(user_id)
+        if error:
+            return error
+        pending = self.bank_repo.get_pending_reservation(user_id)
+        if pending and pending.amount < self._reservation_threshold():
+            cancel_result = self.cancel_reservation(user_id)
+            if cancel_result.get("success"):
+                return {
+                    "success": False,
+                    "message": (
+                        f"❌ 预约金额已低于当前大额预约门槛 {self._reservation_threshold():,} 金币，"
+                        f"已自动取消预约 #{pending.reservation_id}。\n"
+                        f"💡 请改用：/钓鱼银行 取款 {pending.amount}"
+                    ),
+                }
+            return cancel_result
+        success, message, reservation, account, wallet_after, debt_paid = self.bank_repo.complete_pending_reservation(
             user_id, self._reset_date()
         )
         if not success:
@@ -349,7 +405,8 @@ class BankService:
             return {"success": False, "message": message}
 
         self._record_withdraw_fee(user_id, reservation.fee_amount, reservation.amount, wallet_after)
-        net_amount = reservation.amount - reservation.fee_amount
+        self._record_tax_debt_payment(user_id, debt_paid, reservation.amount, wallet_after)
+        net_amount = reservation.amount - reservation.fee_amount - debt_paid
         return {
             "success": True,
             "message": self._format_withdraw_success(
@@ -359,6 +416,7 @@ class BankService:
                 account.balance,
                 wallet_after,
                 prefix="✅ 预约取款完成！",
+                debt_paid=debt_paid,
             ),
             "reservation": reservation,
             "account": account,
@@ -368,6 +426,9 @@ class BankService:
     def cancel_reservation(self, user_id: str) -> Dict[str, Any]:
         if not self.is_enabled():
             return {"success": False, "message": "银行系统暂未启用"}
+        _, error = self._require_user(user_id)
+        if error:
+            return error
         success, message, reservation = self.bank_repo.cancel_pending_reservation(user_id)
         if not success:
             return {"success": False, "message": message}
@@ -392,6 +453,21 @@ class BankService:
         )
         self.log_repo.add_tax_record(tax_record)
 
+    def _record_tax_debt_payment(self, user_id: str, debt_paid: int, original_amount: int, balance_after: int) -> None:
+        if debt_paid <= 0:
+            return
+        tax_record = TaxRecord(
+            tax_id=0,
+            user_id=user_id,
+            tax_amount=debt_paid,
+            tax_rate=0.0,
+            original_amount=original_amount,
+            balance_after=balance_after,
+            timestamp=get_now(),
+            tax_type="欠税补扣",
+        )
+        self.log_repo.add_tax_record(tax_record)
+
     def _format_withdraw_success(
         self,
         amount: int,
@@ -400,6 +476,7 @@ class BankService:
         bank_balance: int,
         wallet_after: int,
         prefix: str = "✅ 取款成功！",
+        debt_paid: int = 0,
     ) -> str:
         message = (
             f"{prefix}\n"
@@ -410,6 +487,8 @@ class BankService:
             message += f"💸 取款手续费：{fee_amount:,} 金币\n"
         else:
             message += "💸 取款手续费：0 金币\n"
+        if debt_paid > 0:
+            message += f"🧾 欠税补扣：{debt_paid:,} 金币\n"
         message += (
             f"🏦 银行余额：{bank_balance:,} 金币\n"
             f"👛 钱包余额：{wallet_after:,} 金币"

@@ -175,11 +175,15 @@ class FishingPlugin(Star):
                 "is_tax": self.is_tax,
                 "threshold": self.threshold,
                 "asset_scope": tax_config.get("asset_scope", "wallet"),
+                "deduct_scope": tax_config.get("deduct_scope", "wallet"),
                 "taxable_mode": tax_config.get("taxable_mode", "total"),
                 "step_coins": self.step_coins,
                 "step_rate": self.step_rate,
                 "min_rate": self.min_rate,
-                "max_rate": self.max_rate
+                "max_rate": self.max_rate,
+                "transfer_tax_rate": tax_config.get("transfer_tax_rate", 0.05),
+                "tax_record_retention_days": tax_config.get("tax_record_retention_days", 90),
+                "tax_record_cleanup_batch_size": tax_config.get("tax_record_cleanup_batch_size", 1000),
             },
             "pond_upgrades": [
                 { "from": 480, "to": 999, "cost": 50000 },
@@ -244,7 +248,11 @@ class FishingPlugin(Star):
         self.gacha_repo = SqliteGachaRepository(db_path)
         self.market_repo = SqliteMarketRepository(db_path)
         self.shop_repo = SqliteShopRepository(db_path)
-        self.log_repo = SqliteLogRepository(db_path)
+        self.log_repo = SqliteLogRepository(
+            db_path,
+            tax_record_retention_days=self.game_config["tax"].get("tax_record_retention_days", 90),
+            tax_record_cleanup_batch_size=self.game_config["tax"].get("tax_record_cleanup_batch_size", 1000),
+        )
         self.achievement_repo = SqliteAchievementRepository(db_path)
         self.buff_repo = SqliteUserBuffRepository(db_path)
         self.exchange_repo = SqliteExchangeRepository(db_path)

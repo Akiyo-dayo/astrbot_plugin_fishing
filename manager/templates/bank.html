@@ -17,7 +17,7 @@
             <div class="card-body">
                 <div class="text-muted small">银行活期总额</div>
                 <div class="fs-4 fw-bold">{{ "{:,}".format(totals.total_account_balance) }}</div>
-                <div class="text-muted small">开户 {{ totals.account_count }} 人</div>
+                <div class="text-muted small">可用 {{ "{:,}".format(totals.total_available_balance) }} / 开户 {{ totals.account_count }} 人</div>
             </div>
         </div>
     </div>
@@ -42,9 +42,9 @@
     <div class="col-lg-3 col-md-6">
         <div class="card border-secondary h-100">
             <div class="card-body">
-                <div class="text-muted small">历史存单</div>
-                <div class="fs-4 fw-bold">{{ totals.total_fixed_count }}</div>
-                <div class="text-muted small">已领取 {{ totals.completed_fixed_count }} / 已提前取出 {{ totals.cancelled_fixed_count }}</div>
+                <div class="text-muted small">预约锁定金额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(totals.total_locked_balance) }}</div>
+                <div class="text-muted small">历史存单 {{ totals.total_fixed_count }} 笔</div>
             </div>
         </div>
     </div>
@@ -74,6 +74,8 @@
                         <th>昵称</th>
                         <th>钱包</th>
                         <th>银行活期</th>
+                        <th>可用/锁定</th>
+                        <th>待预约</th>
                         <th>进行中定期</th>
                         <th>定期本金</th>
                         <th>预计收益</th>
@@ -89,6 +91,11 @@
                         <td>{{ user.nickname or '未设置' }}</td>
                         <td><span class="badge bg-warning text-dark">{{ "{:,}".format(user.coins) }}</span></td>
                         <td><span class="badge bg-info">{{ "{:,}".format(bank.get('account_balance', 0)) }}</span></td>
+                        <td>
+                            {{ "{:,}".format(bank.get('available_balance', 0)) }} /
+                            {{ "{:,}".format(bank.get('locked_balance', 0)) }}
+                        </td>
+                        <td>{{ "{:,}".format(bank.get('pending_reservation_amount', 0)) }}</td>
                         <td>{{ bank.get('active_fixed_count', 0) }} 笔</td>
                         <td>{{ "{:,}".format(bank.get('active_fixed_principal', 0)) }}</td>
                         <td>{{ "{:,}".format(bank.get('active_expected_interest', 0)) }}</td>

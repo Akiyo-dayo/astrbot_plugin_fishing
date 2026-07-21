@@ -9,11 +9,17 @@ from ..domain.models import FishingRecord, GachaRecord, WipeBombLog, TaxRecord, 
 class SqliteLogRepository(AbstractLogRepository):
     """日志类数据仓储的SQLite实现"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, tax_record_retention_days: int = 90, tax_record_cleanup_batch_size: int = 1000):
         self.db_path = db_path
         self._local = threading.local()
         # 定义UTC+8时区
         self.UTC8 = timezone(timedelta(hours=8))
+        self.tax_record_retention_days = int(tax_record_retention_days)
+        self.tax_record_cleanup_batch_size = int(tax_record_cleanup_batch_size)
+
+    def set_tax_record_retention(self, retention_days: int, cleanup_batch_size: int = 1000) -> None:
+        self.tax_record_retention_days = int(retention_days)
+        self.tax_record_cleanup_batch_size = int(cleanup_batch_size)
 
     def _get_connection(self) -> sqlite3.Connection:
         """获取一个线程安全的数据库连接。"""
@@ -365,8 +371,26 @@ class SqliteLogRepository(AbstractLogRepository):
                 ),
             )
 
-            # 税收记录用于后台按用户和日期追溯，不在写入时自动裁剪。
+            self._cleanup_old_tax_records(cursor)
             conn.commit()
+
+    def _cleanup_old_tax_records(self, cursor: sqlite3.Cursor) -> int:
+        retention_days = max(self.tax_record_retention_days, 0)
+        batch_size = max(self.tax_record_cleanup_batch_size, 1)
+        if retention_days <= 0:
+            return 0
+        cutoff_time = datetime.now(self.UTC8) - timedelta(days=retention_days)
+        cursor.execute("""
+            DELETE FROM taxes
+            WHERE tax_id IN (
+                SELECT tax_id
+                FROM taxes
+                WHERE timestamp < ?
+                ORDER BY timestamp ASC
+                LIMIT ?
+            )
+        """, (cutoff_time, batch_size))
+        return cursor.rowcount or 0
 
     def get_wipe_bomb_logs(self, user_id: str, limit: int = 10) -> List[WipeBombLog]:
         with self._get_connection() as conn:

@@ -26,12 +26,15 @@ DEFAULT_TAX_CONFIG = {
     "is_tax": True,
     "threshold": 1_000_000,
     "asset_scope": "wallet",
+    "deduct_scope": "wallet",
     "taxable_mode": "total",
     "step_coins": 100_000,
     "step_rate": 0.01,
     "min_rate": 0.001,
     "max_rate": 0.2,
     "transfer_tax_rate": 0.05,
+    "tax_record_retention_days": 90,
+    "tax_record_cleanup_batch_size": 1000,
 }
 
 ASSET_SCOPE_LABELS = {
@@ -43,6 +46,12 @@ ASSET_SCOPE_LABELS = {
 TAXABLE_MODE_LABELS = {
     "total": "达到起征点后按全部统计资产征税",
     "excess": "只对超过起征点的部分征税",
+}
+
+DEDUCT_SCOPE_LABELS = {
+    "wallet": "只从钱包扣",
+    "bank": "只从银行活期可用余额扣",
+    "wallet_bank": "钱包优先，不足再扣银行活期",
 }
 
 # 工厂函数现在接收服务实例
@@ -956,6 +965,7 @@ async def manage_bank():
 @admin_required
 async def manage_tax():
     log_repo = current_app.config["LOG_REPO"]
+    bank_service = current_app.config.get("BANK_SERVICE")
     tax_config = _get_tax_config()
     user_id = (request.args.get("user_id") or "").strip()
     tax_type = (request.args.get("tax_type") or "").strip()
@@ -982,14 +992,22 @@ async def manage_tax():
         tax_type=tax_type or None,
         limit=limit,
     )
+    debt_summary = {"total_debt": 0, "debt_user_count": 0}
+    tax_debts = []
+    if bank_service:
+        debt_summary = bank_service.get_tax_debt_summary(user_id=user_id or None)
+        tax_debts = bank_service.get_tax_debts_for_admin(user_id=user_id or None, limit=50)
 
     return await render_template(
         "tax.html",
         tax_config=tax_config,
         asset_scope_labels=ASSET_SCOPE_LABELS,
+        deduct_scope_labels=DEDUCT_SCOPE_LABELS,
         taxable_mode_labels=TAXABLE_MODE_LABELS,
         tax_preview=_build_tax_preview(tax_config),
         summary=summary,
+        debt_summary=debt_summary,
+        tax_debts=tax_debts,
         tax_types=[item["tax_type"] for item in summary.get("by_type", [])],
         records=records,
         filters={
@@ -1008,9 +1026,12 @@ async def update_tax_settings():
     form = await request.form
     try:
         asset_scope = form.get("asset_scope", "wallet")
+        deduct_scope = form.get("deduct_scope", "wallet")
         taxable_mode = form.get("taxable_mode", "total")
         if asset_scope not in ASSET_SCOPE_LABELS:
             raise ValueError("无效的资产统计范围")
+        if deduct_scope not in DEDUCT_SCOPE_LABELS:
+            raise ValueError("无效的扣款来源")
         if taxable_mode not in TAXABLE_MODE_LABELS:
             raise ValueError("无效的计税模式")
 
@@ -1018,12 +1039,15 @@ async def update_tax_settings():
             "is_tax": form.get("is_tax") == "on",
             "threshold": max(int(form.get("threshold", DEFAULT_TAX_CONFIG["threshold"])), 0),
             "asset_scope": asset_scope,
+            "deduct_scope": deduct_scope,
             "taxable_mode": taxable_mode,
             "step_coins": max(int(form.get("step_coins", DEFAULT_TAX_CONFIG["step_coins"])), 1),
             "step_rate": max(float(form.get("step_rate", DEFAULT_TAX_CONFIG["step_rate"])), 0.0),
             "min_rate": max(float(form.get("min_rate", DEFAULT_TAX_CONFIG["min_rate"])), 0.0),
             "max_rate": max(float(form.get("max_rate", DEFAULT_TAX_CONFIG["max_rate"])), 0.0),
             "transfer_tax_rate": max(float(form.get("transfer_tax_rate", DEFAULT_TAX_CONFIG["transfer_tax_rate"])), 0.0),
+            "tax_record_retention_days": max(int(form.get("tax_record_retention_days", DEFAULT_TAX_CONFIG["tax_record_retention_days"])), 1),
+            "tax_record_cleanup_batch_size": max(int(form.get("tax_record_cleanup_batch_size", DEFAULT_TAX_CONFIG["tax_record_cleanup_batch_size"])), 1),
         }
         if tax_config["min_rate"] > tax_config["max_rate"]:
             raise ValueError("起点税率不能大于最高税率")
@@ -1035,6 +1059,12 @@ async def update_tax_settings():
         updated_paths = _persist_tax_config(tax_config)
 
         fishing_service = current_app.config.get("FISHING_SERVICE")
+        log_repo = current_app.config.get("LOG_REPO")
+        if log_repo and hasattr(log_repo, "set_tax_record_retention"):
+            log_repo.set_tax_record_retention(
+                tax_config["tax_record_retention_days"],
+                tax_config["tax_record_cleanup_batch_size"],
+            )
         if fishing_service:
             if tax_config["is_tax"]:
                 fishing_service.start_daily_tax_task()

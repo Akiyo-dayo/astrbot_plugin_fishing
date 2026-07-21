@@ -45,6 +45,36 @@
     </div>
 </div>
 
+<div class="row g-3 mb-4">
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-danger h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前欠税总额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(debt_summary.total_debt) }}</div>
+                <div class="text-muted small">{{ debt_summary.debt_user_count }} 个用户存在欠税</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-secondary h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前扣款来源</div>
+                <div class="fs-6 fw-bold">{{ deduct_scope_labels.get(tax_config.deduct_scope, tax_config.deduct_scope) }}</div>
+                <div class="text-muted small">锁定的预约资金不会被扣税</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-dark h-100">
+            <div class="card-body">
+                <div class="text-muted small">记录保留</div>
+                <div class="fs-6 fw-bold">{{ tax_config.tax_record_retention_days }} 天</div>
+                <div class="text-muted small">单次最多清理 {{ tax_config.tax_record_cleanup_batch_size }} 条</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-4 mb-4">
     <div class="col-lg-6">
         <div class="card border-primary h-100">
@@ -57,7 +87,7 @@
                     </div>
 
                     <div class="row g-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label" for="asset_scope">资产统计范围</label>
                             <select class="form-select" id="asset_scope" name="asset_scope">
                                 {% for value, label in asset_scope_labels.items() %}
@@ -65,7 +95,15 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <label class="form-label" for="deduct_scope">扣款来源</label>
+                            <select class="form-select" id="deduct_scope" name="deduct_scope">
+                                {% for value, label in deduct_scope_labels.items() %}
+                                <option value="{{ value }}" {% if tax_config.deduct_scope == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
                             <label class="form-label" for="taxable_mode">计税模式</label>
                             <select class="form-select" id="taxable_mode" name="taxable_mode">
                                 {% for value, label in taxable_mode_labels.items() %}
@@ -100,6 +138,14 @@
                             <label class="form-label" for="transfer_tax_rate">转账手续费率</label>
                             <input class="form-control" type="number" min="0" max="1" step="0.0001" id="transfer_tax_rate" name="transfer_tax_rate" value="{{ tax_config.transfer_tax_rate }}">
                             <div class="form-text">{{ "%.2f"|format(tax_config.transfer_tax_rate * 100) }}%</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="tax_record_retention_days">税收记录保留天数</label>
+                            <input class="form-control" type="number" min="1" id="tax_record_retention_days" name="tax_record_retention_days" value="{{ tax_config.tax_record_retention_days }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="tax_record_cleanup_batch_size">单次清理条数</label>
+                            <input class="form-control" type="number" min="1" id="tax_record_cleanup_batch_size" name="tax_record_cleanup_batch_size" value="{{ tax_config.tax_record_cleanup_batch_size }}">
                         </div>
                     </div>
 
@@ -139,6 +185,45 @@
                     计税模式为“超额”时，税率仍按统计资产所处档位确定，但只对超过起征点的部分扣税。
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-danger mb-4">
+    <div class="card-header">欠税用户</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>用户</th>
+                        <th>欠税</th>
+                        <th>钱包</th>
+                        <th>银行活期</th>
+                        <th>锁定金额</th>
+                        <th>更新时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for debt in tax_debts %}
+                    <tr>
+                        <td>
+                            {{ debt.nickname or '未设置' }}<br>
+                            <code>{{ debt.user_id }}</code>
+                        </td>
+                        <td>{{ "{:,}".format(debt.debt_amount) }}</td>
+                        <td>{{ "{:,}".format(debt.wallet_balance) }}</td>
+                        <td>{{ "{:,}".format(debt.account_balance) }}</td>
+                        <td>{{ "{:,}".format(debt.locked_balance) }}</td>
+                        <td>{{ debt.updated_at }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">当前筛选条件下暂无欠税</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
