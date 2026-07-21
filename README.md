@@ -8,14 +8,13 @@
 
 <div style="background: linear-gradient(135deg, #0ea5e9 0%,#86a4f8 100%); padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px hsla(199, 94.70%, 62.70%, 0.89);">
 
-### 💼 **v2.6.1 交易所容量成长 + 道具消耗 + 鱼饵重量加成**
+### 🛡️ **v2.6.3 隐私保护修复**
 
-🎯 **经济与钓鱼体验继续打磨！**
+🎯 **默认不再向第三方目标发送擦弹统计数据！**
 
-📦 **交易所仓库升级** - 玩家可消耗金币提升大宗商品持仓容量<br>
-🛒 **市场批量流转优化** - 大宗商品按数量扣减，购买按总价结算并校验容量<br>
-🎁 **小钱袋可直接使用** - 作为消耗道具获得金币<br>
-🪱 **鱼饵重量潜力加成** - 巨物诱饵现在会提升渔获最大重量潜力<br>
+🔒 **移除第三方统计上报** - 删除擦弹结算后向 `http://veyu.me/api/record` 上传数据的逻辑<br>
+🎮 **玩法保持不变** - 擦弹游戏、本地日志、奖励结算和返回结果保持正常<br>
+🧩 **同步上游 2.6.3** - 补齐隐私修复说明和版本号<br>
 
 
 </div>
@@ -27,7 +26,7 @@
 [![AGPL-3.0 License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://python.org)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-orange.svg)](https://github.com/astrbot/astrbot)
-[![Version](https://img.shields.io/badge/Version-2.6.1-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.1)
+[![Version](https://img.shields.io/badge/Version-2.6.3-brightgreen.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.6.3)
 [![Major Update](https://img.shields.io/badge/Major-Update-red.svg)](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/releases/tag/v2.0.0)
 
 ## ✨ 功能特点
@@ -106,6 +105,22 @@
 如果您有功能建议或发现问题，欢迎在 [Issues](https://github.com/Akiyo-dayo/astrbot_plugin_fishing/issues) 中提出！
 
 ## 📦 更新记录
+
+#### 🛡️ **v2.6.3 隐私保护修复**
+
+- 移除擦弹结算后向 `http://veyu.me/api/record` 上传用户 ID、投入金额、奖励倍率、奖励金额、盈亏和时间戳的逻辑
+- 擦弹游戏本身、数据库内本地日志、奖励结算和正常返回结果保持不变
+- 插件默认不再向该第三方目标发送擦弹统计数据，以保护用户隐私
+
+---
+
+#### 🐛 **v2.6.2 插件启动兼容性修复**
+
+- 修复从旧 `astrbot_plugin_fishing` 卸载后安装 `astrbot_plugin_fishing_again` 时，迁移脚本仍硬编码导入旧插件包导致启动失败的问题
+- 道具效果自动注册改为使用当前运行时包名，避免插件目录名变化后继续查找旧目录
+- 新增动态插件路径回归测试，覆盖迁移加载和效果包路径配置
+
+---
 
 #### 💼 **v2.6.1 交易所容量成长 + 道具消耗 + 鱼饵重量加成**
 
@@ -290,7 +305,7 @@
 
 **🏦 银行规则**
 
-- 银行余额不参与每日资产税，适合作为长期金币蓄水池
+- 银行资产是否参与每日资产税由 `tax.asset_scope` 配置决定
 - 存款免费并即时到账
 - 每日免费提现额度默认 1,000,000 金币
 - 超出免费提现额度的部分默认收取 3% 取款手续费
@@ -303,9 +318,12 @@
 
 - 税收配置位于插件配置的 `tax` 节，可在 Web 后台“税收管理”页面直接调整
 - `asset_scope` 控制每日资产税统计范围：`wallet` 仅钱包，`wallet_bank` 钱包+银行活期，`wallet_bank_fixed` 钱包+银行活期+进行中定期本金
+- `deduct_scope` 控制每日资产税扣款来源：`wallet` 仅钱包，`bank` 仅银行活期可用余额，`wallet_bank` 钱包优先、不足再扣银行活期可用余额
 - `taxable_mode` 控制计税模式：`total` 达到起征点后按全部统计资产征税，`excess` 仅对超过起征点的部分征税
 - `threshold` 为起征点，`step_coins` 为金额档位跨度，`min_rate`/`step_rate`/`max_rate` 控制税率从起点到上限的增长
-- 每个用户每天只会记录一次 `每日资产税`，税收记录不再写入后自动裁剪，后台支持按用户、日期和税种查看完整税收记录
+- 可扣来源不足时会产生欠税，后续银行取款、预约确认、定期领取或提前取出时优先补扣
+- 税收记录按 `tax_record_retention_days` 和 `tax_record_cleanup_batch_size` 分批清理，欠税余额不会被清理
+- 每个用户每天只会记录一次 `每日资产税`，后台支持按用户、日期和税种查看税收记录
 
 ### 🛒 商店与市场
 
