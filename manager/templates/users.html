@@ -43,6 +43,8 @@
                             <th>用户ID</th>
                             <th>昵称</th>
                             <th>金币</th>
+                            <th>银行活期</th>
+                            <th>定期存款</th>
                             <th>钓鱼次数</th>
                             <th>总重量</th>
                             <th>注册时间</th>
@@ -53,6 +55,7 @@
                     </thead>
                     <tbody>
                         {% for user in users %}
+                        {% set bank = bank_summaries.get(user.user_id, {}) %}
                         <tr>
                             <td>
                                 <code>{{ user.user_id }}</code>
@@ -60,6 +63,13 @@
                             <td>{{ user.nickname or '未设置' }}</td>
                             <td>
                                 <span class="badge bg-warning text-dark">{{ user.coins }}</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-info">{{ bank.get('account_balance', 0) }}</span>
+                            </td>
+                            <td>
+                                {{ bank.get('active_fixed_count', 0) }} 笔 /
+                                {{ bank.get('active_fixed_principal', 0) }} 金币
                             </td>
                             <td>{{ user.total_fishing_count }}</td>
                             <td>{{ user.total_weight_caught }}g</td>
@@ -97,6 +107,7 @@
         <div id="cardViewContent" style="display: none;">
             <div class="row">
                 {% for user in users %}
+                {% set bank = bank_summaries.get(user.user_id, {}) %}
                 <div class="col-lg-4 col-md-6 mb-3">
                     <div class="card h-100">
                         <div class="card-body">
@@ -108,6 +119,8 @@
                                 <small class="text-muted">
                                     <code>{{ user.user_id }}</code><br>
                                     钓鱼 {{ user.total_fishing_count }} 次<br>
+                                    银行活期 {{ bank.get('account_balance', 0) }} 金币<br>
+                                    定期 {{ bank.get('active_fixed_count', 0) }} 笔 / {{ bank.get('active_fixed_principal', 0) }} 金币<br>
                                     总重量 {{ user.total_weight_caught }}g<br>
                                     注册于 {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '未知' }}
                                 </small>

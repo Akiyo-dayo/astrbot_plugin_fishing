@@ -22,6 +22,7 @@ from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
 from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository
 from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository
 from .core.repositories.sqlite_loan_repo import SqliteLoanRepository
+from .core.repositories.sqlite_bank_repo import SqliteBankRepository
 
 from .core.services.data_setup_service import DataSetupService
 from .core.services.item_template_service import ItemTemplateService
@@ -42,6 +43,7 @@ from .core.services.loan_service import LoanService
 from .core.services.fish_weight_service import FishWeightService # 新增钓鱼权重Service
 from .core.services.blackjack_service import BlackjackService  # 新增21点游戏Service
 from .core.services.slot_service import SlotService  # 拉杆机Service
+from .core.services.bank_service import BankService
 
 from .core.database.migration import run_migrations
 
@@ -62,6 +64,7 @@ from .handlers import (
     loan_handlers,
     blackjack_handlers,  # 新增21点游戏处理器
     slot_handlers,  # 拉杆机处理器
+    bank_handlers,
 )
 from .handlers.fishing_handlers import FishingHandlers
 from .handlers.exchange_handlers import ExchangeHandlers
@@ -119,6 +122,7 @@ class FishingPlugin(Star):
         market_config = config.get("market", {})
         sell_prices_config = config.get("sell_prices", {})
         loan_config = config.get("loan", {})  # 新增借贷配置
+        bank_config = config.get("bank", {})
         
         # 直接从框架获取 exchange 配置（不重建）
         exchange_config = config.get("exchange", {})
@@ -170,10 +174,16 @@ class FishingPlugin(Star):
             "tax": {
                 "is_tax": self.is_tax,
                 "threshold": self.threshold,
+                "asset_scope": tax_config.get("asset_scope", "wallet"),
+                "deduct_scope": tax_config.get("deduct_scope", "wallet"),
+                "taxable_mode": tax_config.get("taxable_mode", "total"),
                 "step_coins": self.step_coins,
                 "step_rate": self.step_rate,
                 "min_rate": self.min_rate,
-                "max_rate": self.max_rate
+                "max_rate": self.max_rate,
+                "transfer_tax_rate": tax_config.get("transfer_tax_rate", 0.05),
+                "tax_record_retention_days": tax_config.get("tax_record_retention_days", 90),
+                "tax_record_cleanup_batch_size": tax_config.get("tax_record_cleanup_batch_size", 1000),
             },
             "pond_upgrades": [
                 { "from": 480, "to": 999, "cost": 50000 },
@@ -215,6 +225,15 @@ class FishingPlugin(Star):
             "sicbo": config.get("sicbo", {}),  # 骰宝配置
             "blackjack": config.get("blackjack", {}),  # 21点配置
             "slot": config.get("slot", {}),  # 拉杆机配置
+            "bank": {
+                "enabled": bank_config.get("enabled", True),
+                "daily_free_withdraw_limit": bank_config.get("daily_free_withdraw_limit", 1000000),
+                "withdraw_fee_rate": bank_config.get("withdraw_fee_rate", 0.03),
+                "reservation_threshold": bank_config.get("reservation_threshold", 5000000),
+                "reservation_delay_hours": bank_config.get("reservation_delay_hours", 24),
+                "max_pending_reservations": bank_config.get("max_pending_reservations", 1),
+                "fixed_deposit": bank_config.get("fixed_deposit", {}),
+            },
         }
         
         # 初始化数据库模式
@@ -229,10 +248,15 @@ class FishingPlugin(Star):
         self.gacha_repo = SqliteGachaRepository(db_path)
         self.market_repo = SqliteMarketRepository(db_path)
         self.shop_repo = SqliteShopRepository(db_path)
-        self.log_repo = SqliteLogRepository(db_path)
+        self.log_repo = SqliteLogRepository(
+            db_path,
+            tax_record_retention_days=self.game_config["tax"].get("tax_record_retention_days", 90),
+            tax_record_cleanup_batch_size=self.game_config["tax"].get("tax_record_cleanup_batch_size", 1000),
+        )
         self.achievement_repo = SqliteAchievementRepository(db_path)
         self.buff_repo = SqliteUserBuffRepository(db_path)
         self.exchange_repo = SqliteExchangeRepository(db_path)
+        self.bank_repo = SqliteBankRepository(db_path)
 
         # --- 3. 组合根：实例化所有服务层，并注入依赖 ---
         # 3.1 核心服务必须在效果管理器之前实例化，以解决依赖问题
@@ -269,6 +293,7 @@ class FishingPlugin(Star):
             self.fishing_zone_service,
             self.fish_weight_service,
             self.game_config,
+            self.bank_repo,
         )
         
         # 导入并初始化水族箱服务
@@ -294,6 +319,7 @@ class FishingPlugin(Star):
         
         # 初始化拉杆机服务
         self.slot_service = SlotService(self.user_repo, self.log_repo, self.game_config, data_dir=self.data_dir)
+        self.bank_service = BankService(self.bank_repo, self.user_repo, self.log_repo, self.game_config)
         
         # 让骰宝的记录也写入统一的读博记录
         self.sicbo_service.set_gambling_record_callback(self.blackjack_service._add_gambling_record)
@@ -814,6 +840,24 @@ class FishingPlugin(Star):
     async def coins(self, event: AstrMessageEvent):
         """查看你当前拥有的金币数量"""
         async for r in inventory_handlers.coins(self, event):
+            yield r
+
+    @filter.command("钓鱼银行")
+    async def bank(self, event: AstrMessageEvent):
+        """查看银行账户或进行银行操作。用法：钓鱼银行 [存款/取款/预约取款/确认预约/取消预约/定期] [金额]"""
+        async for r in bank_handlers.bank_main(self, event):
+            yield r
+
+    @filter.command("钓鱼存款")
+    async def bank_deposit(self, event: AstrMessageEvent):
+        """快捷存款。用法：钓鱼存款 金额"""
+        async for r in bank_handlers.deposit(self, event):
+            yield r
+
+    @filter.command("钓鱼取款")
+    async def bank_withdraw(self, event: AstrMessageEvent):
+        """快捷取款。用法：钓鱼取款 金额"""
+        async for r in bank_handlers.withdraw(self, event):
             yield r
 
     @filter.command("转账", alias={"赠送"})

@@ -148,6 +148,18 @@ def draw_help_image():
         ("高级货币", "查看高级\n货币余额"),
     ]
 
+    bank = [
+        ("钓鱼银行", "查看银行账户\n和免费提现额度"),
+        ("钓鱼存款 [金额]", "快捷存入\n钱包金币"),
+        ("钓鱼取款 [金额]", "快捷取出\n银行活期"),
+        ("钓鱼银行 预约取款 [金额]", "预约大额\n取款"),
+        ("钓鱼银行 定期", "查看定期\n档位规则"),
+        ("钓鱼银行 定期存款 [金额] [天数]", "创建定期\n存单"),
+        ("钓鱼银行 定期列表", "查看我的\n定期存单"),
+        ("钓鱼银行 定期取出 [编号]", "领取已到期\n定期"),
+        ("钓鱼银行 提前取出 [编号]", "提前取出\n仅返本金"),
+    ]
+
     market = [
         ("全部卖出", "一键卖出\n鱼塘所有鱼"),
         ("保留卖出", "卖出所有鱼\n但每种保留一条"),
@@ -300,6 +312,7 @@ def draw_help_image():
     y0_est = logo_y + logo_size + 30
     y0_est += section_delta(len(basic), 3)
     y0_est += section_delta(len(inventory), 3)
+    y0_est += section_delta(len(bank), 3)
     y0_est += section_delta(len(market), 3)
     y0_est += section_delta(len(gacha), 3)
     y0_est += section_delta(len(sicbo), 3)
@@ -347,6 +360,7 @@ def draw_help_image():
     y0 = logo_y + logo_size + 30
     y0 = draw_section("🎣 基础与核心玩法", basic, y0, cols=3)
     y0 = draw_section("🎒 背包与资产管理", inventory, y0, cols=3)
+    y0 = draw_section("🏦 银行系统", bank, y0, cols=3)
     y0 = draw_section("🛒 商店与市场", market, y0, cols=3)
     y0 = draw_section("🎰 抽卡与概率玩法", gacha, y0, cols=3)
     y0 = draw_section("🎲 骰宝游戏", sicbo, y0, cols=3)

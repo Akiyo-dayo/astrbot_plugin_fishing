@@ -1,0 +1,207 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="fas fa-building-columns"></i> 银行管理</h2>
+    <form class="d-flex gap-2" method="get">
+        <input type="text" class="form-control" name="search" value="{{ search }}" placeholder="搜索用户ID或昵称..." style="width: 300px;">
+        <button class="btn btn-outline-secondary" type="submit">
+            <i class="fas fa-search"></i>
+        </button>
+    </form>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-primary h-100">
+            <div class="card-body">
+                <div class="text-muted small">银行活期总额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(totals.total_account_balance) }}</div>
+                <div class="text-muted small">可用 {{ "{:,}".format(totals.total_available_balance) }} / 开户 {{ totals.account_count }} 人</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-info h-100">
+            <div class="card-body">
+                <div class="text-muted small">进行中定期本金</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(totals.active_fixed_principal) }}</div>
+                <div class="text-muted small">{{ totals.active_fixed_count }} 笔进行中</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-success h-100">
+            <div class="card-body">
+                <div class="text-muted small">预计待付收益</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(totals.active_expected_interest) }}</div>
+                <div class="text-muted small">按当前存单记录统计</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-secondary h-100">
+            <div class="card-body">
+                <div class="text-muted small">预约锁定金额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(totals.total_locked_balance) }}</div>
+                <div class="text-muted small">历史存单 {{ totals.total_fixed_count }} 笔</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if fixed_terms.success %}
+<div class="alert alert-info">
+    <strong>当前定期规则：</strong>
+    {% for days, rate in fixed_terms.terms|dictsort %}
+        {{ days }}天 {{ "%.2f"|format(rate * 100) }}%{% if not loop.last %}，{% endif %}
+    {% endfor %}
+    ；提前取出收益清零，本金超过 {{ "{:,}".format(fixed_terms.early_withdraw_penalty_threshold) }} 金币收 {{ "%.1f"|format(fixed_terms.early_withdraw_penalty_rate * 100) }}% 违约金。
+</div>
+{% endif %}
+
+<div class="card border-primary mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>玩家银行汇总</span>
+        <span class="text-muted">共 {{ pagination.total_count }} 个用户</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>用户ID</th>
+                        <th>昵称</th>
+                        <th>钱包</th>
+                        <th>银行活期</th>
+                        <th>可用/锁定</th>
+                        <th>待预约</th>
+                        <th>进行中定期</th>
+                        <th>定期本金</th>
+                        <th>预计收益</th>
+                        <th>下次到期</th>
+                        <th>历史</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    {% set bank = bank_summaries.get(user.user_id, {}) %}
+                    <tr>
+                        <td><code>{{ user.user_id }}</code></td>
+                        <td>{{ user.nickname or '未设置' }}</td>
+                        <td><span class="badge bg-warning text-dark">{{ "{:,}".format(user.coins) }}</span></td>
+                        <td><span class="badge bg-info">{{ "{:,}".format(bank.get('account_balance', 0)) }}</span></td>
+                        <td>
+                            {{ "{:,}".format(bank.get('available_balance', 0)) }} /
+                            {{ "{:,}".format(bank.get('locked_balance', 0)) }}
+                        </td>
+                        <td>{{ "{:,}".format(bank.get('pending_reservation_amount', 0)) }}</td>
+                        <td>{{ bank.get('active_fixed_count', 0) }} 笔</td>
+                        <td>{{ "{:,}".format(bank.get('active_fixed_principal', 0)) }}</td>
+                        <td>{{ "{:,}".format(bank.get('active_expected_interest', 0)) }}</td>
+                        <td>{{ bank.get('next_maturity') or '-' }}</td>
+                        <td>
+                            已领取 {{ bank.get('completed_fixed_count', 0) }} /
+                            已提前取出 {{ bank.get('cancelled_fixed_count', 0) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.total_pages > 1 %}
+        <nav aria-label="银行用户分页">
+            <ul class="pagination justify-content-center">
+                {% if pagination.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ pagination.current_page - 1 }}{% if search %}&search={{ search }}{% endif %}">上一页</a>
+                </li>
+                {% endif %}
+
+                {% for page_num in range(1, pagination.total_pages + 1) %}
+                    {% if page_num == pagination.current_page %}
+                    <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+                    {% elif page_num <= 3 or page_num > pagination.total_pages - 3 or (page_num >= pagination.current_page - 1 and page_num <= pagination.current_page + 1) %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_num }}{% if search %}&search={{ search }}{% endif %}">{{ page_num }}</a>
+                    </li>
+                    {% elif page_num == 4 and pagination.current_page > 5 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% elif page_num == pagination.total_pages - 3 and pagination.current_page < pagination.total_pages - 4 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ pagination.current_page + 1 }}{% if search %}&search={{ search }}{% endif %}">下一页</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card border-secondary">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>存单明细</span>
+        <span class="text-muted">最多显示最近 100 条{% if search %}匹配结果{% endif %}</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>编号</th>
+                        <th>用户</th>
+                        <th>状态</th>
+                        <th>本金</th>
+                        <th>周期</th>
+                        <th>收益率</th>
+                        <th>预计收益</th>
+                        <th>开始时间</th>
+                        <th>到期时间</th>
+                        <th>完成时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in fixed_deposits %}
+                    {% set deposit = item.deposit %}
+                    <tr>
+                        <td>#{{ deposit.deposit_id }}</td>
+                        <td>
+                            {{ item.nickname or '未设置' }}<br>
+                            <code>{{ deposit.user_id }}</code>
+                        </td>
+                        <td>
+                            {% if deposit.status == 'active' %}
+                                <span class="badge bg-primary">进行中</span>
+                            {% elif deposit.status == 'completed' %}
+                                <span class="badge bg-success">已领取</span>
+                            {% elif deposit.status == 'cancelled' %}
+                                <span class="badge bg-secondary">已提前取出</span>
+                            {% else %}
+                                <span class="badge bg-light text-dark">{{ deposit.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ "{:,}".format(deposit.principal) }}</td>
+                        <td>{{ deposit.term_days }} 天</td>
+                        <td>{{ "%.2f"|format(deposit.interest_rate * 100) }}%</td>
+                        <td>{{ "{:,}".format(deposit.expected_interest) }}</td>
+                        <td>{{ deposit.started_at.strftime('%Y-%m-%d %H:%M') if deposit.started_at else '-' }}</td>
+                        <td>{{ deposit.matures_at.strftime('%Y-%m-%d %H:%M') if deposit.matures_at else '-' }}</td>
+                        <td>{{ deposit.completed_at.strftime('%Y-%m-%d %H:%M') if deposit.completed_at else '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" class="text-center text-muted">暂无存单记录</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

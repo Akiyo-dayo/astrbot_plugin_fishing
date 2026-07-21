@@ -54,12 +54,12 @@ def run_migrations(db_path: str, migrations_dir: str):
         version = int(filename.split("_")[0])
         if version > current_version:
             logger.info(f"正在应用迁移脚本: {filename}...")
-            migration_path = os.path.join(migrations_dir, filename)
             module_name = f"fishing_migration_{version}_{filename[:-3]}"
+            migration_path = os.path.join(migrations_dir, filename)
             try:
                 spec = importlib.util.spec_from_file_location(module_name, migration_path)
                 if spec is None or spec.loader is None:
-                    raise ImportError(f"Cannot load migration from {migration_path}")
+                    raise ImportError(f"无法从路径加载迁移脚本: {migration_path}")
                 migration_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(migration_module)
 
@@ -79,5 +79,5 @@ def run_migrations(db_path: str, migrations_dir: str):
                         logger.error(f"应用迁移失败: {filename}。错误: {e}")
                         raise
             except Exception as e:
-                logger.error(f"加载迁移模块失败: {migration_path}。错误: {e}")
+                logger.error(f"加载迁移脚本失败: {migration_path}。错误: {e}")
                 raise

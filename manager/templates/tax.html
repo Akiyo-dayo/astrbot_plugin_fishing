@@ -1,0 +1,307 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="fas fa-receipt"></i> 税收管理</h2>
+    <span class="text-muted">每日资产税与税收记录</span>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-primary h-100">
+            <div class="card-body">
+                <div class="text-muted small">筛选区间税收总额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(summary.total_tax) }}</div>
+                <div class="text-muted small">{{ summary.record_count }} 条记录 / {{ summary.user_count }} 个用户</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-warning h-100">
+            <div class="card-body">
+                <div class="text-muted small">每日资产税</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(summary.daily_tax_total) }}</div>
+                <div class="text-muted small">{{ summary.daily_tax_count }} 条每日资产税记录</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-info h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前资产范围</div>
+                <div class="fs-6 fw-bold">{{ asset_scope_labels.get(tax_config.asset_scope, tax_config.asset_scope) }}</div>
+                <div class="text-muted small">用于判断起征点和税率档位</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-success h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前计税模式</div>
+                <div class="fs-6 fw-bold">{{ taxable_mode_labels.get(tax_config.taxable_mode, tax_config.taxable_mode) }}</div>
+                <div class="text-muted small">税率上限 {{ "%.2f"|format(tax_config.max_rate * 100) }}%</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-danger h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前欠税总额</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(debt_summary.total_debt) }}</div>
+                <div class="text-muted small">{{ debt_summary.debt_user_count }} 个用户存在欠税</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-secondary h-100">
+            <div class="card-body">
+                <div class="text-muted small">当前扣款来源</div>
+                <div class="fs-6 fw-bold">{{ deduct_scope_labels.get(tax_config.deduct_scope, tax_config.deduct_scope) }}</div>
+                <div class="text-muted small">锁定的预约资金不会被扣税</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <div class="card border-dark h-100">
+            <div class="card-body">
+                <div class="text-muted small">记录保留</div>
+                <div class="fs-6 fw-bold">{{ tax_config.tax_record_retention_days }} 天</div>
+                <div class="text-muted small">单次最多清理 {{ tax_config.tax_record_cleanup_batch_size }} 条</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card border-primary h-100">
+            <div class="card-header">每日资产税配置</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('admin_bp.update_tax_settings') }}">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="is_tax" name="is_tax" {% if tax_config.is_tax %}checked{% endif %}>
+                        <label class="form-check-label" for="is_tax">启用每日资产税</label>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label" for="asset_scope">资产统计范围</label>
+                            <select class="form-select" id="asset_scope" name="asset_scope">
+                                {% for value, label in asset_scope_labels.items() %}
+                                <option value="{{ value }}" {% if tax_config.asset_scope == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="deduct_scope">扣款来源</label>
+                            <select class="form-select" id="deduct_scope" name="deduct_scope">
+                                {% for value, label in deduct_scope_labels.items() %}
+                                <option value="{{ value }}" {% if tax_config.deduct_scope == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="taxable_mode">计税模式</label>
+                            <select class="form-select" id="taxable_mode" name="taxable_mode">
+                                {% for value, label in taxable_mode_labels.items() %}
+                                <option value="{{ value }}" {% if tax_config.taxable_mode == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="threshold">起征点</label>
+                            <input class="form-control" type="number" min="0" id="threshold" name="threshold" value="{{ tax_config.threshold }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="step_coins">金额档位步长</label>
+                            <input class="form-control" type="number" min="1" id="step_coins" name="step_coins" value="{{ tax_config.step_coins }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="min_rate">起点税率</label>
+                            <input class="form-control" type="number" min="0" max="1" step="0.0001" id="min_rate" name="min_rate" value="{{ tax_config.min_rate }}">
+                            <div class="form-text">{{ "%.2f"|format(tax_config.min_rate * 100) }}%</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="step_rate">每档增加税率</label>
+                            <input class="form-control" type="number" min="0" max="1" step="0.0001" id="step_rate" name="step_rate" value="{{ tax_config.step_rate }}">
+                            <div class="form-text">{{ "%.2f"|format(tax_config.step_rate * 100) }}%</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="max_rate">最高税率</label>
+                            <input class="form-control" type="number" min="0" max="1" step="0.0001" id="max_rate" name="max_rate" value="{{ tax_config.max_rate }}">
+                            <div class="form-text">{{ "%.2f"|format(tax_config.max_rate * 100) }}%</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="transfer_tax_rate">转账手续费率</label>
+                            <input class="form-control" type="number" min="0" max="1" step="0.0001" id="transfer_tax_rate" name="transfer_tax_rate" value="{{ tax_config.transfer_tax_rate }}">
+                            <div class="form-text">{{ "%.2f"|format(tax_config.transfer_tax_rate * 100) }}%</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="tax_record_retention_days">税收记录保留天数</label>
+                            <input class="form-control" type="number" min="1" id="tax_record_retention_days" name="tax_record_retention_days" value="{{ tax_config.tax_record_retention_days }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="tax_record_cleanup_batch_size">单次清理条数</label>
+                            <input class="form-control" type="number" min="1" id="tax_record_cleanup_batch_size" name="tax_record_cleanup_batch_size" value="{{ tax_config.tax_record_cleanup_batch_size }}">
+                        </div>
+                    </div>
+
+                    <div class="mt-4 text-end">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存税收配置
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card border-secondary h-100">
+            <div class="card-header">税率档位预览</div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>统计资产范围</th>
+                                <th>税率</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in tax_preview %}
+                            <tr>
+                                <td>{{ "{:,}".format(row.lower) }} - {{ "{:,}".format(row.upper) }}</td>
+                                <td>{{ "%.2f"|format(row.rate * 100) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="text-muted small">
+                    计税模式为“超额”时，税率仍按统计资产所处档位确定，但只对超过起征点的部分扣税。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-danger mb-4">
+    <div class="card-header">欠税用户</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>用户</th>
+                        <th>欠税</th>
+                        <th>钱包</th>
+                        <th>银行活期</th>
+                        <th>锁定金额</th>
+                        <th>更新时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for debt in tax_debts %}
+                    <tr>
+                        <td>
+                            {{ debt.nickname or '未设置' }}<br>
+                            <code>{{ debt.user_id }}</code>
+                        </td>
+                        <td>{{ "{:,}".format(debt.debt_amount) }}</td>
+                        <td>{{ "{:,}".format(debt.wallet_balance) }}</td>
+                        <td>{{ "{:,}".format(debt.account_balance) }}</td>
+                        <td>{{ "{:,}".format(debt.locked_balance) }}</td>
+                        <td>{{ debt.updated_at }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">当前筛选条件下暂无欠税</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card border-primary">
+    <div class="card-header">税收记录</div>
+    <div class="card-body">
+        <form class="row g-3 align-items-end mb-3" method="get">
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="start_date">开始日期</label>
+                <input class="form-control" type="date" id="start_date" name="start_date" value="{{ filters.start_date }}">
+            </div>
+            <div class="col-lg-2 col-md-4">
+                <label class="form-label" for="end_date">结束日期</label>
+                <input class="form-control" type="date" id="end_date" name="end_date" value="{{ filters.end_date }}">
+            </div>
+            <div class="col-lg-3 col-md-4">
+                <label class="form-label" for="user_id">用户ID</label>
+                <input class="form-control" type="text" id="user_id" name="user_id" value="{{ filters.user_id }}" placeholder="留空查看全部">
+            </div>
+            <div class="col-lg-3 col-md-4">
+                <label class="form-label" for="tax_type">税种</label>
+                <select class="form-select" id="tax_type" name="tax_type">
+                    <option value="">全部税种</option>
+                    {% for tax_type in tax_types %}
+                    <option value="{{ tax_type }}" {% if filters.tax_type == tax_type %}selected{% endif %}>{{ tax_type }}</option>
+                    {% endfor %}
+                    {% if filters.tax_type and filters.tax_type not in tax_types %}
+                    <option value="{{ filters.tax_type }}" selected>{{ filters.tax_type }}</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div class="col-lg-1 col-md-4">
+                <label class="form-label" for="limit">条数</label>
+                <input class="form-control" type="number" min="20" max="1000" id="limit" name="limit" value="{{ filters.limit }}">
+            </div>
+            <div class="col-lg-1 col-md-4">
+                <button class="btn btn-outline-primary w-100" type="submit">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>用户</th>
+                        <th>税种</th>
+                        <th>税额</th>
+                        <th>税率</th>
+                        <th>税前资产</th>
+                        <th>税后资产</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records %}
+                    <tr>
+                        <td>{{ record.timestamp }}</td>
+                        <td>
+                            {{ record.nickname or '未设置' }}<br>
+                            <code>{{ record.user_id }}</code>
+                        </td>
+                        <td>{{ record.tax_type }}</td>
+                        <td>{{ "{:,}".format(record.tax_amount) }}</td>
+                        <td>{{ "%.2f"|format(record.tax_rate * 100) }}%</td>
+                        <td>{{ "{:,}".format(record.original_amount) }}</td>
+                        <td>{{ "{:,}".format(record.balance_after) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">当前筛选条件下暂无税收记录</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

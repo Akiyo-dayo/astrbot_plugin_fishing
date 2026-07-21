@@ -33,6 +33,24 @@
         "hint": "税收的起征点，低于此值不收税",
         "default": 1000000
       },
+      "asset_scope": {
+        "description": "每日资产税统计范围",
+        "type": "string",
+        "hint": "wallet=只统计钱包；wallet_bank=钱包+银行活期；wallet_bank_fixed=钱包+银行活期+进行中定期本金",
+        "default": "wallet"
+      },
+      "deduct_scope": {
+        "description": "每日资产税扣款来源",
+        "type": "string",
+        "hint": "wallet=只从钱包扣；bank=只从银行活期可用余额扣；wallet_bank=钱包优先，不足再扣银行活期可用余额",
+        "default": "wallet"
+      },
+      "taxable_mode": {
+        "description": "每日资产税计税模式",
+        "type": "string",
+        "hint": "total=达到起征点后按全部统计资产征税；excess=只对超过起征点的部分征税",
+        "default": "total"
+      },
       "step_coins": {
         "description": "税收的步长",
         "type": "int",
@@ -64,6 +82,136 @@
         "default": 0.05,
         "min": 0.0,
         "max": 1.0
+      },
+      "tax_record_retention_days": {
+        "description": "税收记录保留天数",
+        "type": "int",
+        "hint": "超过该天数的 taxes 明细会在新增税收记录时分批清理，欠税余额不会被清理",
+        "default": 90
+      },
+      "tax_record_cleanup_batch_size": {
+        "description": "税收记录单次清理条数",
+        "type": "int",
+        "hint": "新增税收记录时最多清理多少条过期 taxes 明细，避免单次清理阻塞过久",
+        "default": 1000
+      }
+    }
+  },
+  "bank": {
+    "description": "银行系统配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "是否启用银行系统",
+        "type": "bool",
+        "hint": "关闭后银行相关命令不可用",
+        "default": true
+      },
+      "daily_free_withdraw_limit": {
+        "description": "每日免费提现额度",
+        "type": "int",
+        "hint": "超过该额度的取款部分会收取手续费",
+        "default": 1000000
+      },
+      "withdraw_fee_rate": {
+        "description": "超额取款手续费率",
+        "type": "float",
+        "hint": "仅对超过每日免费提现额度的部分收取，例如0.03表示3%",
+        "default": 0.03,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "reservation_threshold": {
+        "description": "大额取款预约门槛",
+        "type": "int",
+        "hint": "单笔取款达到该金额时需要先预约",
+        "default": 5000000
+      },
+      "reservation_delay_hours": {
+        "description": "大额取款预约等待小时数",
+        "type": "int",
+        "hint": "预约后需要等待多少小时才能确认取款",
+        "default": 24
+      },
+      "max_pending_reservations": {
+        "description": "最大待确认预约数",
+        "type": "int",
+        "hint": "每个用户最多可同时持有的待确认预约数量",
+        "default": 1
+      },
+      "fixed_deposit": {
+        "description": "银行定期存款配置",
+        "type": "object",
+        "items": {
+          "enabled": {
+            "description": "是否启用定期存款",
+            "type": "bool",
+            "hint": "关闭后定期存款相关命令不可用",
+            "default": true
+          },
+          "min_amount": {
+            "description": "单笔定期最低金额",
+            "type": "int",
+            "hint": "低于此金额不能创建定期存款",
+            "default": 100000
+          },
+          "max_amount": {
+            "description": "单笔定期最高金额",
+            "type": "int",
+            "hint": "高于此金额不能创建定期存款",
+            "default": 20000000
+          },
+          "max_active_deposits": {
+            "description": "最大进行中定期数量",
+            "type": "int",
+            "hint": "每个用户最多可同时持有的进行中定期存款数量",
+            "default": 5
+          },
+          "early_withdraw_penalty_rate": {
+            "description": "提前取出违约金率",
+            "type": "float",
+            "hint": "提前取出大额定期时对本金收取的违约金率，例如0.01表示1%",
+            "default": 0.01,
+            "min": 0.0,
+            "max": 1.0
+          },
+          "early_withdraw_penalty_threshold": {
+            "description": "提前取出违约金门槛",
+            "type": "int",
+            "hint": "本金超过该金额的定期提前取出时才收取违约金",
+            "default": 1000000
+          },
+          "terms": {
+            "description": "定期档位收益率",
+            "type": "object",
+            "items": {
+              "1": {
+                "description": "1天定期收益率",
+                "type": "float",
+                "hint": "例如0.001表示0.1%",
+                "default": 0.001
+              },
+              "3": {
+                "description": "3天定期收益率",
+                "type": "float",
+                "hint": "例如0.004表示0.4%",
+                "default": 0.004
+              },
+              "7": {
+                "description": "7天定期收益率",
+                "type": "float",
+                "hint": "例如0.01表示1%",
+                "default": 0.01
+              },
+              "30": {
+                "description": "30天定期收益率",
+                "type": "float",
+                "hint": "例如0.05表示5%",
+                "default": 0.05
+              }
+            }
+          }
+        }
       }
     }
   },

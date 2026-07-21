@@ -1,10 +1,12 @@
 import functools
+import json
 import os
 import traceback
 from typing import Dict, Any
 from datetime import datetime, timedelta
 import csv
 import io
+from pathlib import Path
 
 from quart import (
     Quart, render_template, request, redirect, url_for, session, flash,
@@ -19,6 +21,38 @@ admin_bp = Blueprint(
     template_folder="templates",
     static_folder="static",
 )
+
+DEFAULT_TAX_CONFIG = {
+    "is_tax": True,
+    "threshold": 1_000_000,
+    "asset_scope": "wallet",
+    "deduct_scope": "wallet",
+    "taxable_mode": "total",
+    "step_coins": 100_000,
+    "step_rate": 0.01,
+    "min_rate": 0.001,
+    "max_rate": 0.2,
+    "transfer_tax_rate": 0.05,
+    "tax_record_retention_days": 90,
+    "tax_record_cleanup_batch_size": 1000,
+}
+
+ASSET_SCOPE_LABELS = {
+    "wallet": "只统计钱包",
+    "wallet_bank": "钱包 + 银行活期",
+    "wallet_bank_fixed": "钱包 + 银行活期 + 定期本金",
+}
+
+TAXABLE_MODE_LABELS = {
+    "total": "达到起征点后按全部统计资产征税",
+    "excess": "只对超过起征点的部分征税",
+}
+
+DEDUCT_SCOPE_LABELS = {
+    "wallet": "只从钱包扣",
+    "bank": "只从银行活期可用余额扣",
+    "wallet_bank": "钱包优先，不足再扣银行活期",
+}
 
 # 工厂函数现在接收服务实例
 def create_app(secret_key: str, services: Dict[str, Any]):
@@ -90,6 +124,67 @@ def admin_required(f):
             return redirect(url_for("admin_bp.login"))
         return await f(*args, **kwargs)
     return decorated_function
+
+
+def _get_tax_config() -> Dict[str, Any]:
+    game_config = current_app.config.get("GAME_CONFIG", {})
+    tax_config = dict(DEFAULT_TAX_CONFIG)
+    tax_config.update(game_config.get("tax", {}) or {})
+    return tax_config
+
+
+def _parse_date_filter():
+    start_date = request.args.get("start_date") or datetime.now().date().isoformat()
+    end_date = request.args.get("end_date") or start_date
+    start_time = datetime.fromisoformat(start_date)
+    end_time = datetime.fromisoformat(end_date) + timedelta(days=1)
+    return start_date, end_date, start_time, end_time
+
+
+def _build_tax_preview(tax_config: Dict[str, Any], levels: int = 8):
+    threshold = int(tax_config.get("threshold", DEFAULT_TAX_CONFIG["threshold"]))
+    step_coins = max(int(tax_config.get("step_coins", DEFAULT_TAX_CONFIG["step_coins"])), 1)
+    step_rate = float(tax_config.get("step_rate", DEFAULT_TAX_CONFIG["step_rate"]))
+    min_rate = float(tax_config.get("min_rate", DEFAULT_TAX_CONFIG["min_rate"]))
+    max_rate = float(tax_config.get("max_rate", DEFAULT_TAX_CONFIG["max_rate"]))
+    rows = []
+    for idx in range(levels):
+        lower = threshold + idx * step_coins
+        upper = lower + step_coins - 1
+        rate = min(min_rate + idx * step_rate, max_rate)
+        rows.append({
+            "lower": lower,
+            "upper": upper,
+            "rate": rate,
+        })
+        if rate >= max_rate:
+            break
+    return rows
+
+
+def _find_plugin_config_paths():
+    data_dir = Path(__file__).resolve().parents[3]
+    config_dir = data_dir / "config"
+    if not config_dir.exists():
+        return []
+    candidates = sorted(config_dir.glob("astrbot_plugin_fishing*_config.json"))
+    return [path for path in candidates if path.is_file()]
+
+
+def _persist_tax_config(tax_config: Dict[str, Any]):
+    updated_paths = []
+    for path in _find_plugin_config_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            data["tax"] = tax_config
+            path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8-sig",
+            )
+            updated_paths.append(str(path))
+        except Exception as e:
+            logger.warning(f"写入税收配置失败: {path} - {e}")
+    return updated_paths
 
 @admin_bp.route("/login", methods=["GET", "POST"])
 async def login():
@@ -770,6 +865,7 @@ async def update_pool_item_weight(item_id):
 @admin_required
 async def manage_users():
     user_service = current_app.config["USER_SERVICE"]
+    bank_service = current_app.config.get("BANK_SERVICE")
     page = int(request.args.get("page", 1))
     search = request.args.get("search", "")
     
@@ -778,10 +874,15 @@ async def manage_users():
     if not result["success"]:
         await flash("获取用户列表失败：" + result.get("message", "未知错误"), "danger")
         return redirect(url_for("admin_bp.index"))
+
+    bank_summaries = {}
+    if bank_service:
+        bank_summaries = bank_service.get_admin_summary_for_users(result["users"])
     
     return await render_template(
         "users.html", 
         users=result["users"], 
+        bank_summaries=bank_summaries,
         pagination=result["pagination"],
         search=search
     )
@@ -791,6 +892,7 @@ async def manage_users():
 @admin_required
 async def get_user_detail(user_id):
     user_service = current_app.config["USER_SERVICE"]
+    bank_service = current_app.config.get("BANK_SERVICE")
     result = user_service.get_user_details_for_admin(user_id)
     
     if not result["success"]:
@@ -813,14 +915,170 @@ async def get_user_detail(user_id):
         "last_login_time": result["user"].last_login_time.isoformat() if result["user"].last_login_time else None
     }
     
+    bank_summary = {}
+    if bank_service:
+        bank_summary = bank_service.get_admin_summary_for_users([result["user"]]).get(user_id, {})
+
     return {
         "success": True,
         "user": user_dict,
+        "bank": bank_summary,
         "equipped_rod": result["equipped_rod"],
         "equipped_accessory": result["equipped_accessory"],
         "current_title": result["current_title"],
         "titles": result.get("titles", [])
     }
+
+@admin_bp.route("/bank")
+@login_required
+@admin_required
+async def manage_bank():
+    user_service = current_app.config["USER_SERVICE"]
+    bank_service = current_app.config["BANK_SERVICE"]
+    page = int(request.args.get("page", 1))
+    search = request.args.get("search", "")
+
+    result = user_service.get_users_for_admin(page=page, per_page=20, search=search or None)
+    if not result["success"]:
+        await flash("获取银行用户列表失败：" + result.get("message", "未知错误"), "danger")
+        return redirect(url_for("admin_bp.index"))
+
+    bank_summaries = bank_service.get_admin_summary_for_users(result["users"])
+    totals = bank_service.get_admin_totals()
+    fixed_deposits = bank_service.get_fixed_deposits_for_admin(search=search or None, limit=100)
+    fixed_terms = bank_service.get_fixed_terms()
+
+    return await render_template(
+        "bank.html",
+        users=result["users"],
+        bank_summaries=bank_summaries,
+        pagination=result["pagination"],
+        search=search,
+        totals=totals,
+        fixed_deposits=fixed_deposits,
+        fixed_terms=fixed_terms,
+        now=datetime.now(),
+    )
+
+@admin_bp.route("/tax")
+@login_required
+@admin_required
+async def manage_tax():
+    log_repo = current_app.config["LOG_REPO"]
+    bank_service = current_app.config.get("BANK_SERVICE")
+    tax_config = _get_tax_config()
+    user_id = (request.args.get("user_id") or "").strip()
+    tax_type = (request.args.get("tax_type") or "").strip()
+    limit = int(request.args.get("limit", 200))
+    limit = max(20, min(limit, 1000))
+
+    try:
+        start_date, end_date, start_time, end_time = _parse_date_filter()
+    except ValueError:
+        start_date = end_date = datetime.now().date().isoformat()
+        start_time = datetime.fromisoformat(start_date)
+        end_time = start_time + timedelta(days=1)
+        await flash("日期格式无效，已回退到今天。", "warning")
+
+    summary = log_repo.get_tax_summary_for_admin(
+        start_time=start_time,
+        end_time=end_time,
+        user_id=user_id or None,
+    )
+    records = log_repo.get_tax_records_for_admin(
+        user_id=user_id or None,
+        start_time=start_time,
+        end_time=end_time,
+        tax_type=tax_type or None,
+        limit=limit,
+    )
+    debt_summary = {"total_debt": 0, "debt_user_count": 0}
+    tax_debts = []
+    if bank_service:
+        debt_summary = bank_service.get_tax_debt_summary(user_id=user_id or None)
+        tax_debts = bank_service.get_tax_debts_for_admin(user_id=user_id or None, limit=50)
+
+    return await render_template(
+        "tax.html",
+        tax_config=tax_config,
+        asset_scope_labels=ASSET_SCOPE_LABELS,
+        deduct_scope_labels=DEDUCT_SCOPE_LABELS,
+        taxable_mode_labels=TAXABLE_MODE_LABELS,
+        tax_preview=_build_tax_preview(tax_config),
+        summary=summary,
+        debt_summary=debt_summary,
+        tax_debts=tax_debts,
+        tax_types=[item["tax_type"] for item in summary.get("by_type", [])],
+        records=records,
+        filters={
+            "user_id": user_id,
+            "tax_type": tax_type,
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit,
+        },
+    )
+
+@admin_bp.route("/tax/update", methods=["POST"])
+@login_required
+@admin_required
+async def update_tax_settings():
+    form = await request.form
+    try:
+        asset_scope = form.get("asset_scope", "wallet")
+        deduct_scope = form.get("deduct_scope", "wallet")
+        taxable_mode = form.get("taxable_mode", "total")
+        if asset_scope not in ASSET_SCOPE_LABELS:
+            raise ValueError("无效的资产统计范围")
+        if deduct_scope not in DEDUCT_SCOPE_LABELS:
+            raise ValueError("无效的扣款来源")
+        if taxable_mode not in TAXABLE_MODE_LABELS:
+            raise ValueError("无效的计税模式")
+
+        tax_config = {
+            "is_tax": form.get("is_tax") == "on",
+            "threshold": max(int(form.get("threshold", DEFAULT_TAX_CONFIG["threshold"])), 0),
+            "asset_scope": asset_scope,
+            "deduct_scope": deduct_scope,
+            "taxable_mode": taxable_mode,
+            "step_coins": max(int(form.get("step_coins", DEFAULT_TAX_CONFIG["step_coins"])), 1),
+            "step_rate": max(float(form.get("step_rate", DEFAULT_TAX_CONFIG["step_rate"])), 0.0),
+            "min_rate": max(float(form.get("min_rate", DEFAULT_TAX_CONFIG["min_rate"])), 0.0),
+            "max_rate": max(float(form.get("max_rate", DEFAULT_TAX_CONFIG["max_rate"])), 0.0),
+            "transfer_tax_rate": max(float(form.get("transfer_tax_rate", DEFAULT_TAX_CONFIG["transfer_tax_rate"])), 0.0),
+            "tax_record_retention_days": max(int(form.get("tax_record_retention_days", DEFAULT_TAX_CONFIG["tax_record_retention_days"])), 1),
+            "tax_record_cleanup_batch_size": max(int(form.get("tax_record_cleanup_batch_size", DEFAULT_TAX_CONFIG["tax_record_cleanup_batch_size"])), 1),
+        }
+        if tax_config["min_rate"] > tax_config["max_rate"]:
+            raise ValueError("起点税率不能大于最高税率")
+        if tax_config["transfer_tax_rate"] > 1 or tax_config["max_rate"] > 1:
+            raise ValueError("税率不能超过 1.0")
+
+        game_config = current_app.config["GAME_CONFIG"]
+        game_config["tax"] = tax_config
+        updated_paths = _persist_tax_config(tax_config)
+
+        fishing_service = current_app.config.get("FISHING_SERVICE")
+        log_repo = current_app.config.get("LOG_REPO")
+        if log_repo and hasattr(log_repo, "set_tax_record_retention"):
+            log_repo.set_tax_record_retention(
+                tax_config["tax_record_retention_days"],
+                tax_config["tax_record_cleanup_batch_size"],
+            )
+        if fishing_service:
+            if tax_config["is_tax"]:
+                fishing_service.start_daily_tax_task()
+            else:
+                fishing_service.stop_daily_tax_task()
+
+        if updated_paths:
+            await flash(f"税收配置已保存，并同步写入 {len(updated_paths)} 个配置文件。", "success")
+        else:
+            await flash("税收配置已更新到当前运行进程，但未找到可写入的配置文件。", "warning")
+    except Exception as e:
+        await flash(f"税收配置保存失败：{e}", "danger")
+
+    return redirect(url_for("admin_bp.manage_tax"))
 
 @admin_bp.route("/users/<user_id>/update", methods=["POST"])
 @login_required
