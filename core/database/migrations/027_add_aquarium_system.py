@@ -1,4 +1,27 @@
+import json
 import sqlite3
+from pathlib import Path
+
+
+DEFAULT_UPGRADES_PATH = (
+    Path(__file__).resolve().parents[2] / "config" / "aquarium_upgrades.json"
+)
+
+
+def _load_default_upgrades():
+    """迁移只负责建表；初始档位来自独立、可审阅的版本化配置。"""
+    with DEFAULT_UPGRADES_PATH.open("r", encoding="utf-8") as file:
+        rows = json.load(file)
+    return [
+        (
+            int(row["level"]),
+            int(row["capacity"]),
+            int(row["cost_coins"]),
+            int(row.get("cost_premium", 0)),
+            str(row.get("description") or ""),
+        )
+        for row in rows
+    ]
 
 
 def up(cursor: sqlite3.Cursor):
@@ -41,18 +64,7 @@ def up(cursor: sqlite3.Cursor):
     """)
     
     # 4. 插入默认的水族箱升级配置
-    upgrades = [
-        (1, 50, 0, 0, "初始水族箱容量"),
-        (2, 100, 10000, 0, "升级到100容量"),
-        (3, 150, 25000, 0, "升级到150容量"),
-        (4, 200, 50000, 0, "升级到200容量"),
-        (5, 300, 100000, 0, "升级到300容量"),
-        (6, 500, 200000, 0, "升级到500容量"),
-        (7, 750, 500000, 0, "升级到750容量"),
-        (8, 1000, 1000000, 0, "升级到1000容量"),
-        (9, 1500, 2000000, 0, "升级到1500容量"),
-        (10, 2000, 5000000, 0, "升级到2000容量"),
-    ]
+    upgrades = _load_default_upgrades()
     
     cursor.executemany("""
         INSERT OR IGNORE INTO aquarium_upgrades (level, capacity, cost_coins, cost_premium, description)

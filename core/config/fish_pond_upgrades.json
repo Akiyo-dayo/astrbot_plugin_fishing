@@ -1,0 +1,37 @@
+[
+  {
+    "level": 1,
+    "capacity": 480,
+    "cost_coins": 0,
+    "cost_premium": 0,
+    "description": "初始鱼塘容量"
+  },
+  {
+    "level": 2,
+    "capacity": 999,
+    "cost_coins": 50000,
+    "cost_premium": 0,
+    "description": "升级到999容量"
+  },
+  {
+    "level": 3,
+    "capacity": 9999,
+    "cost_coins": 500000,
+    "cost_premium": 0,
+    "description": "升级到9999容量"
+  },
+  {
+    "level": 4,
+    "capacity": 99999,
+    "cost_coins": 50000000,
+    "cost_premium": 0,
+    "description": "升级到99999容量"
+  },
+  {
+    "level": 5,
+    "capacity": 999999,
+    "cost_coins": 5000000000,
+    "cost_premium": 0,
+    "description": "升级到999999容量"
+  }
+]

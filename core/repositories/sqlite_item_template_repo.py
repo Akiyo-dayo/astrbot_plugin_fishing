@@ -1,9 +1,9 @@
 import sqlite3
-import threading
 from typing import Optional, List, Dict, Any
 
 # 导入抽象基类和领域模型
 from .abstract_repository import AbstractItemTemplateRepository
+from ..database.connection_manager import DatabaseConnectionManager
 from ..domain.models import Fish, Rod, Bait, Accessory, Title, Item
 
 class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
@@ -11,16 +11,21 @@ class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._local = threading.local()
+        self._conn_mgr = DatabaseConnectionManager(db_path, detect_types=0)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取一个线程安全的数据库连接。"""
-        conn = getattr(self._local, "connection", None)
-        if conn is None:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            self._local.connection = conn
-        return conn
+    def close_connection(self) -> None:
+        self._conn_mgr.close_connection()
+
+    def _get_connection(self):
+        """返回由统一管理器维护的读取连接上下文。"""
+        return self._conn_mgr.get_connection()
+
+    def _execute_write(self, query: str, params: Any = ()) -> None:
+        """在可安全重放的事务中执行单条模板写入。"""
+        def _op(cursor: sqlite3.Cursor) -> None:
+            cursor.execute(query, params)
+
+        self._conn_mgr.run_in_transaction(_op)
 
     # --- 私有映射辅助方法 ---
     def _row_to_fish(self, row: sqlite3.Row) -> Optional[Fish]:
@@ -68,26 +73,23 @@ class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
         )
 
     def add(self, item: Item):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO items (name, description, rarity, effect_description, cost, is_consumable, icon_url, effect_type, effect_payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item.name,
-                    item.description,
-                    item.rarity,
-                    item.effect_description,
-                    item.cost,
-                    item.is_consumable,
-                    item.icon_url,
-                    item.effect_type,
-                    item.effect_payload,
-                ),
-            )
-            conn.commit()
+        self._execute_write(
+            """
+            INSERT INTO items (name, description, rarity, effect_description, cost, is_consumable, icon_url, effect_type, effect_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.name,
+                item.description,
+                item.rarity,
+                item.effect_description,
+                item.cost,
+                item.is_consumable,
+                item.icon_url,
+                item.effect_type,
+                item.effect_payload,
+            ),
+        )
 
     def get_by_id(self, item_id: int) -> Optional[Item]:
         with self._get_connection() as conn:
@@ -122,28 +124,25 @@ class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
             return self._to_domain(row) if row else None
 
     def update(self, item: Item):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE items
-                SET name = ?, description = ?, rarity = ?, effect_description = ?, cost = ?, is_consumable = ?, icon_url = ?, effect_type = ?, effect_payload = ?
-                WHERE item_id = ?
-                """,
-                (
-                    item.name,
-                    item.description,
-                    item.rarity,
-                    item.effect_description,
-                    item.cost,
-                    item.is_consumable,
-                    item.icon_url,
-                    item.effect_type,
-                    item.effect_payload,
-                    item.item_id,
-                ),
-            )
-            conn.commit()
+        self._execute_write(
+            """
+            UPDATE items
+            SET name = ?, description = ?, rarity = ?, effect_description = ?, cost = ?, is_consumable = ?, icon_url = ?, effect_type = ?, effect_payload = ?
+            WHERE item_id = ?
+            """,
+            (
+                item.name,
+                item.description,
+                item.rarity,
+                item.effect_description,
+                item.cost,
+                item.is_consumable,
+                item.icon_url,
+                item.effect_type,
+                item.effect_payload,
+                item.item_id,
+            ),
+        )
 
     def _to_domain_from_row(self, row: sqlite3.Row) -> Item:
         """从 sqlite3.Row 对象转换到领域模型"""
@@ -268,245 +267,239 @@ class SqliteItemTemplateRepository(AbstractItemTemplateRepository):
 
     # --- Fish Admin CRUD ---
     def add_fish_template(self, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO fish (name, description, rarity, base_value, min_weight, max_weight, icon_url)
-                VALUES (:name, :description, :rarity, :base_value, :min_weight, :max_weight, :icon_url)
-            """, {**data, "icon_url": data.get("icon_url")})
-            conn.commit()
+        self._execute_write(
+            """
+            INSERT INTO fish (name, description, rarity, base_value, min_weight, max_weight, icon_url)
+            VALUES (:name, :description, :rarity, :base_value, :min_weight, :max_weight, :icon_url)
+            """,
+            {**data, "icon_url": data.get("icon_url")},
+        )
 
     def update_fish_template(self, fish_id: int, data: Dict[str, Any]) -> None:
         data["fish_id"] = fish_id
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE fish SET
-                    name = :name, description = :description, rarity = :rarity,
-                    base_value = :base_value, min_weight = :min_weight,
-                    max_weight = :max_weight, icon_url = :icon_url
-                WHERE fish_id = :fish_id
-            """, {**data, "icon_url": data.get("icon_url")})
-            conn.commit()
+        self._execute_write(
+            """
+            UPDATE fish SET
+                name = :name, description = :description, rarity = :rarity,
+                base_value = :base_value, min_weight = :min_weight,
+                max_weight = :max_weight, icon_url = :icon_url
+            WHERE fish_id = :fish_id
+            """,
+            {**data, "icon_url": data.get("icon_url")},
+        )
 
     def delete_fish_template(self, fish_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM fish WHERE fish_id = ?", (fish_id,))
-            conn.commit()
+        self._execute_write("DELETE FROM fish WHERE fish_id = ?", (fish_id,))
 
     # --- Rod Admin CRUD ---
     def add_rod_template(self, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            # 注意：durability 允许为 0，不能用 "or None" 否则 0 会被当作 None
-            durability_value = data.get("durability")
-            if durability_value == "":
-                durability_value = None
-            cursor.execute("""
-                INSERT INTO rods (name, description, rarity, source, purchase_cost,
-                                  bonus_fish_quality_modifier, bonus_fish_quantity_modifier,
-                                  bonus_rare_fish_chance, durability, icon_url)
-                VALUES (:name, :description, :rarity, :source, :purchase_cost,
-                        :bonus_fish_quality_modifier, :bonus_fish_quantity_modifier,
-                        :bonus_rare_fish_chance, :durability, :icon_url)
-            """, {**data, "purchase_cost": data.get("purchase_cost") or None, "durability": durability_value, "icon_url": data.get("icon_url")})
-            conn.commit()
+        # 注意：durability 允许为 0，不能用 "or None" 否则 0 会被当作 None
+        durability_value = data.get("durability")
+        if durability_value == "":
+            durability_value = None
+        self._execute_write(
+            """
+            INSERT INTO rods (name, description, rarity, source, purchase_cost,
+                              bonus_fish_quality_modifier, bonus_fish_quantity_modifier,
+                              bonus_rare_fish_chance, durability, icon_url)
+            VALUES (:name, :description, :rarity, :source, :purchase_cost,
+                    :bonus_fish_quality_modifier, :bonus_fish_quantity_modifier,
+                    :bonus_rare_fish_chance, :durability, :icon_url)
+            """,
+            {
+                **data,
+                "purchase_cost": data.get("purchase_cost") or None,
+                "durability": durability_value,
+                "icon_url": data.get("icon_url"),
+            },
+        )
 
     def update_rod_template(self, rod_id: int, data: Dict[str, Any]) -> None:
         data["rod_id"] = rod_id
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            # 注意：durability 允许为 0，不能用 "or None"
-            durability_value = data.get("durability")
-            if durability_value == "":
-                durability_value = None
-            cursor.execute("""
-                UPDATE rods SET
-                    name = :name, description = :description, rarity = :rarity, source = :source,
-                    purchase_cost = :purchase_cost, bonus_fish_quality_modifier = :bonus_fish_quality_modifier,
-                    bonus_fish_quantity_modifier = :bonus_fish_quantity_modifier,
-                    bonus_rare_fish_chance = :bonus_rare_fish_chance, durability = :durability,
-                    icon_url = :icon_url
-                WHERE rod_id = :rod_id
-            """, {**data, "purchase_cost": data.get("purchase_cost") or None, "durability": durability_value, "icon_url": data.get("icon_url")})
-            conn.commit()
+        # 注意：durability 允许为 0，不能用 "or None"
+        durability_value = data.get("durability")
+        if durability_value == "":
+            durability_value = None
+        self._execute_write(
+            """
+            UPDATE rods SET
+                name = :name, description = :description, rarity = :rarity, source = :source,
+                purchase_cost = :purchase_cost, bonus_fish_quality_modifier = :bonus_fish_quality_modifier,
+                bonus_fish_quantity_modifier = :bonus_fish_quantity_modifier,
+                bonus_rare_fish_chance = :bonus_rare_fish_chance, durability = :durability,
+                icon_url = :icon_url
+            WHERE rod_id = :rod_id
+            """,
+            {
+                **data,
+                "purchase_cost": data.get("purchase_cost") or None,
+                "durability": durability_value,
+                "icon_url": data.get("icon_url"),
+            },
+        )
 
     def delete_rod_template(self, rod_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM rods WHERE rod_id = ?", (rod_id,))
-            conn.commit()
+        self._execute_write("DELETE FROM rods WHERE rod_id = ?", (rod_id,))
 
     # --- Bait Admin CRUD ---
     def add_bait_template(self, data: Dict[str, Any]) -> None:
         """后台添加一个新鱼饵，包含所有结构化效果字段"""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            # 从表单字典中准备数据，为数字字段提供默认值
-            params = {
-                "name": data.get("name"),
-                "description": data.get("description"),
-                "rarity": data.get("rarity", 1),
-                "effect_description": data.get("effect_description"),
-                "duration_minutes": data.get("duration_minutes", 0),
-                "cost": data.get("cost", 0),
-                "required_rod_rarity": data.get("required_rod_rarity", 0),
-                "success_rate_modifier": data.get("success_rate_modifier", 0.0),
-                "rare_chance_modifier": data.get("rare_chance_modifier", 0.0),
-                "garbage_reduction_modifier": data.get("garbage_reduction_modifier", 0.0),
-                "value_modifier": data.get("value_modifier", 1.0),
-                "quantity_modifier": data.get("quantity_modifier", 1.0),
-                "weight_modifier": data.get("weight_modifier", 1.0),
-                "is_consumable": 1 if data.get("is_consumable", False) else 0
-            }
-            cursor.execute("""
-                INSERT INTO baits (
-                    name, description, rarity, effect_description, duration_minutes, cost, required_rod_rarity,
-                    success_rate_modifier, rare_chance_modifier, garbage_reduction_modifier,
-                    value_modifier, quantity_modifier, weight_modifier, is_consumable
-                ) VALUES (
-                    :name, :description, :rarity, :effect_description, :duration_minutes, :cost, :required_rod_rarity,
-                    :success_rate_modifier, :rare_chance_modifier, :garbage_reduction_modifier,
-                    :value_modifier, :quantity_modifier, :weight_modifier, :is_consumable
-                )
-            """, params)
-            conn.commit()
+        # 从表单字典中准备数据，为数字字段提供默认值
+        params = {
+            "name": data.get("name"),
+            "description": data.get("description"),
+            "rarity": data.get("rarity", 1),
+            "effect_description": data.get("effect_description"),
+            "duration_minutes": data.get("duration_minutes", 0),
+            "cost": data.get("cost", 0),
+            "required_rod_rarity": data.get("required_rod_rarity", 0),
+            "success_rate_modifier": data.get("success_rate_modifier", 0.0),
+            "rare_chance_modifier": data.get("rare_chance_modifier", 0.0),
+            "garbage_reduction_modifier": data.get("garbage_reduction_modifier", 0.0),
+            "value_modifier": data.get("value_modifier", 1.0),
+            "quantity_modifier": data.get("quantity_modifier", 1.0),
+            "weight_modifier": data.get("weight_modifier", 1.0),
+            "is_consumable": 1 if data.get("is_consumable", False) else 0,
+        }
+        self._execute_write(
+            """
+            INSERT INTO baits (
+                name, description, rarity, effect_description, duration_minutes, cost, required_rod_rarity,
+                success_rate_modifier, rare_chance_modifier, garbage_reduction_modifier,
+                value_modifier, quantity_modifier, weight_modifier, is_consumable
+            ) VALUES (
+                :name, :description, :rarity, :effect_description, :duration_minutes, :cost, :required_rod_rarity,
+                :success_rate_modifier, :rare_chance_modifier, :garbage_reduction_modifier,
+                :value_modifier, :quantity_modifier, :weight_modifier, :is_consumable
+            )
+            """,
+            params,
+        )
 
     def update_bait_template(self, bait_id: int, data: Dict[str, Any]) -> None:
         """后台更新一个鱼饵的信息，包含所有结构化效果字段"""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            params = {
-                "bait_id": bait_id,
-                "name": data.get("name"),
-                "description": data.get("description"),
-                "rarity": data.get("rarity", 1),
-                "effect_description": data.get("effect_description"),
-                "duration_minutes": data.get("duration_minutes", 0),
-                "cost": data.get("cost", 0),
-                "required_rod_rarity": data.get("required_rod_rarity", 0),
-                "success_rate_modifier": data.get("success_rate_modifier", 0.0),
-                "rare_chance_modifier": data.get("rare_chance_modifier", 0.0),
-                "garbage_reduction_modifier": data.get("garbage_reduction_modifier", 0.0),
-                "value_modifier": data.get("value_modifier", 1.0),
-                "quantity_modifier": data.get("quantity_modifier", 1.0),
-                "weight_modifier": data.get("weight_modifier", 1.0),
-                "is_consumable": 1 if data.get("is_consumable", False) else 0
-            }
-            cursor.execute("""
-                UPDATE baits SET
-                    name = :name, description = :description, rarity = :rarity,
-                    effect_description = :effect_description, duration_minutes = :duration_minutes,
-                    cost = :cost, required_rod_rarity = :required_rod_rarity,
-                    success_rate_modifier = :success_rate_modifier, rare_chance_modifier = :rare_chance_modifier,
-                    garbage_reduction_modifier = :garbage_reduction_modifier, value_modifier = :value_modifier,
-                    quantity_modifier = :quantity_modifier, weight_modifier = :weight_modifier,
-                    is_consumable = :is_consumable
-                WHERE bait_id = :bait_id
-            """, params)
-            conn.commit()
+        params = {
+            "bait_id": bait_id,
+            "name": data.get("name"),
+            "description": data.get("description"),
+            "rarity": data.get("rarity", 1),
+            "effect_description": data.get("effect_description"),
+            "duration_minutes": data.get("duration_minutes", 0),
+            "cost": data.get("cost", 0),
+            "required_rod_rarity": data.get("required_rod_rarity", 0),
+            "success_rate_modifier": data.get("success_rate_modifier", 0.0),
+            "rare_chance_modifier": data.get("rare_chance_modifier", 0.0),
+            "garbage_reduction_modifier": data.get("garbage_reduction_modifier", 0.0),
+            "value_modifier": data.get("value_modifier", 1.0),
+            "quantity_modifier": data.get("quantity_modifier", 1.0),
+            "weight_modifier": data.get("weight_modifier", 1.0),
+            "is_consumable": 1 if data.get("is_consumable", False) else 0,
+        }
+        self._execute_write(
+            """
+            UPDATE baits SET
+                name = :name, description = :description, rarity = :rarity,
+                effect_description = :effect_description, duration_minutes = :duration_minutes,
+                cost = :cost, required_rod_rarity = :required_rod_rarity,
+                success_rate_modifier = :success_rate_modifier, rare_chance_modifier = :rare_chance_modifier,
+                garbage_reduction_modifier = :garbage_reduction_modifier, value_modifier = :value_modifier,
+                quantity_modifier = :quantity_modifier, weight_modifier = :weight_modifier,
+                is_consumable = :is_consumable
+            WHERE bait_id = :bait_id
+            """,
+            params,
+        )
 
     def delete_bait_template(self, bait_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM baits WHERE bait_id = ?", (bait_id,))
-            conn.commit()
+        self._execute_write("DELETE FROM baits WHERE bait_id = ?", (bait_id,))
 
     # --- Accessory Admin CRUD ---
     def add_accessory_template(self, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO accessories (name, description, rarity, slot_type, bonus_fish_quality_modifier,
-                                         bonus_fish_quantity_modifier, bonus_rare_fish_chance,
-                                         bonus_coin_modifier, other_bonus_description, icon_url)
-                VALUES (:name, :description, :rarity, :slot_type, :bonus_fish_quality_modifier,
-                        :bonus_fish_quantity_modifier, :bonus_rare_fish_chance, :bonus_coin_modifier,
-                        :other_bonus_description, :icon_url)
-            """, {**data, "icon_url": data.get("icon_url")})
-            conn.commit()
+        self._execute_write(
+            """
+            INSERT INTO accessories (name, description, rarity, slot_type, bonus_fish_quality_modifier,
+                                     bonus_fish_quantity_modifier, bonus_rare_fish_chance,
+                                     bonus_coin_modifier, other_bonus_description, icon_url)
+            VALUES (:name, :description, :rarity, :slot_type, :bonus_fish_quality_modifier,
+                    :bonus_fish_quantity_modifier, :bonus_rare_fish_chance, :bonus_coin_modifier,
+                    :other_bonus_description, :icon_url)
+            """,
+            {**data, "icon_url": data.get("icon_url")},
+        )
 
     def update_accessory_template(self, accessory_id: int, data: Dict[str, Any]) -> None:
         data["accessory_id"] = accessory_id
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE accessories SET
-                    name = :name, description = :description, rarity = :rarity, slot_type = :slot_type,
-                    bonus_fish_quality_modifier = :bonus_fish_quality_modifier,
-                    bonus_fish_quantity_modifier = :bonus_fish_quantity_modifier,
-                    bonus_rare_fish_chance = :bonus_rare_fish_chance,
-                    bonus_coin_modifier = :bonus_coin_modifier,
-                    other_bonus_description = :other_bonus_description, icon_url = :icon_url
-                WHERE accessory_id = :accessory_id
-            """, {**data, "icon_url": data.get("icon_url")})
-            conn.commit()
+        self._execute_write(
+            """
+            UPDATE accessories SET
+                name = :name, description = :description, rarity = :rarity, slot_type = :slot_type,
+                bonus_fish_quality_modifier = :bonus_fish_quality_modifier,
+                bonus_fish_quantity_modifier = :bonus_fish_quantity_modifier,
+                bonus_rare_fish_chance = :bonus_rare_fish_chance,
+                bonus_coin_modifier = :bonus_coin_modifier,
+                other_bonus_description = :other_bonus_description, icon_url = :icon_url
+            WHERE accessory_id = :accessory_id
+            """,
+            {**data, "icon_url": data.get("icon_url")},
+        )
 
     def delete_accessory_template(self, accessory_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM accessories WHERE accessory_id = ?", (accessory_id,))
-            conn.commit()
+        self._execute_write(
+            "DELETE FROM accessories WHERE accessory_id = ?", (accessory_id,)
+        )
 
     # --- Item Admin CRUD ---
     def add_item_template(self, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO items (name, description, rarity, effect_description, cost, is_consumable, icon_url)
-                VALUES (:name, :description, :rarity, :effect_description, :cost, :is_consumable, :icon_url)
-            """, {
+        self._execute_write(
+            """
+            INSERT INTO items (name, description, rarity, effect_description, cost, is_consumable, icon_url)
+            VALUES (:name, :description, :rarity, :effect_description, :cost, :is_consumable, :icon_url)
+            """,
+            {
                 **data,
                 "is_consumable": 1 if "is_consumable" in data and data["is_consumable"] else 0,
-                "icon_url": data.get("icon_url")
-            })
-            conn.commit()
+                "icon_url": data.get("icon_url"),
+            },
+        )
 
     def update_item_template(self, item_id: int, data: Dict[str, Any]) -> None:
         data["item_id"] = item_id
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE items SET
-                    name = :name, description = :description, rarity = :rarity,
-                    effect_description = :effect_description,
-                    cost = :cost, is_consumable = :is_consumable, icon_url = :icon_url
-                WHERE item_id = :item_id
-            """, {
+        self._execute_write(
+            """
+            UPDATE items SET
+                name = :name, description = :description, rarity = :rarity,
+                effect_description = :effect_description,
+                cost = :cost, is_consumable = :is_consumable, icon_url = :icon_url
+            WHERE item_id = :item_id
+            """,
+            {
                 **data,
                 "is_consumable": 1 if "is_consumable" in data and data["is_consumable"] else 0,
-                "icon_url": data.get("icon_url")
-            })
-            conn.commit()
+                "icon_url": data.get("icon_url"),
+            },
+        )
 
     def delete_item_template(self, item_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM items WHERE item_id = ?", (item_id,))
-            conn.commit()
+        self._execute_write("DELETE FROM items WHERE item_id = ?", (item_id,))
 
     def add_title_template(self, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO titles (title_id, name, description, display_format)
-                VALUES (:title_id, :name, :description, :display_format)
-            """, data)
-            conn.commit()
+        self._execute_write(
+            """
+            INSERT INTO titles (title_id, name, description, display_format)
+            VALUES (:title_id, :name, :description, :display_format)
+            """,
+            data,
+        )
 
     def update_title_template(self, title_id: int, data: Dict[str, Any]) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE titles
-                SET name = :name, description = :description, display_format = :display_format
-                WHERE title_id = :title_id
-            """, {**data, "title_id": title_id})
-            conn.commit()
+        self._execute_write(
+            """
+            UPDATE titles
+            SET name = :name, description = :description, display_format = :display_format
+            WHERE title_id = :title_id
+            """,
+            {**data, "title_id": title_id},
+        )
 
     def delete_title_template(self, title_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM titles WHERE title_id = ?", (title_id,))
-            conn.commit()
+        self._execute_write("DELETE FROM titles WHERE title_id = ?", (title_id,))

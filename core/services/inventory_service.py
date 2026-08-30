@@ -4,9 +4,15 @@ from typing import Dict, Any, Optional
 
 # 导入仓储接口和领域模型
 from ..repositories.abstract_repository import (
+    AbstractAquariumConfigRepository,
     AbstractInventoryRepository,
     AbstractUserRepository,
     AbstractItemTemplateRepository,
+)
+from ..aquarium_upgrade_config import (
+    AquariumUpgradeConfigError,
+    load_default_fish_pond_upgrades,
+    normalize_aquarium_upgrades,
 )
 from .effect_manager import EffectManager
 from ..utils import calculate_after_refine
@@ -24,6 +30,7 @@ class InventoryService:
         effect_manager: EffectManager,
         game_mechanics_service: GameMechanicsService,
         config: Dict[str, Any],
+        fish_pond_config_repo: AbstractAquariumConfigRepository,
     ):
         self.inventory_repo = inventory_repo
         self.user_repo = user_repo
@@ -31,6 +38,7 @@ class InventoryService:
         self.effect_manager = effect_manager
         self.game_mechanics_service = game_mechanics_service
         self.config = config
+        self.fish_pond_config_repo = fish_pond_config_repo
 
     # === 短码解析 ===
     def _to_base36(self, n: int) -> str:
@@ -775,33 +783,70 @@ class InventoryService:
         if not user:
             return {"success": False, "message": "用户不存在"}
 
-        upgrade_path = self.config.get("pond_upgrades", [])
-        current_capacity = user.fish_pond_capacity
-
-        next_upgrade = None
-        for upgrade in upgrade_path:
-            if upgrade["from"] == current_capacity:
-                next_upgrade = upgrade
-                break
+        upgrades = self.fish_pond_config_repo.get_all()
+        current_level = next(
+            (
+                upgrade.level
+                for upgrade in reversed(upgrades)
+                if user.fish_pond_capacity >= upgrade.capacity
+            ),
+            1,
+        )
+        next_upgrade = self.fish_pond_config_repo.get_by_level(current_level + 1)
 
         if not next_upgrade:
             return {"success": False, "message": "鱼塘容量已达到最大，无法再升级"}
 
-        cost = next_upgrade["cost"]
-        if not user.can_afford(cost):
-            return {"success": False, "message": f"金币不足，升级需要 {cost} 金币"}
+        if not user.can_afford(next_upgrade.cost_coins):
+            return {
+                "success": False,
+                "message": f"金币不足，升级需要 {next_upgrade.cost_coins} 金币",
+            }
+        if user.premium_currency < next_upgrade.cost_premium:
+            return {
+                "success": False,
+                "message": f"钻石不足，升级需要 {next_upgrade.cost_premium} 钻石",
+            }
 
         # 执行升级
-        user.coins -= cost
-        user.fish_pond_capacity = next_upgrade["to"]
+        user.coins -= next_upgrade.cost_coins
+        user.premium_currency -= next_upgrade.cost_premium
+        user.fish_pond_capacity = next_upgrade.capacity
         self.user_repo.update(user)
 
         return {
             "success": True,
             "message": f"鱼塘升级成功！新容量为 {user.fish_pond_capacity}。",
             "new_capacity": user.fish_pond_capacity,
-            "cost": cost
+            "cost": next_upgrade.cost_coins,
+            "premium_cost": next_upgrade.cost_premium,
         }
+
+    def get_fish_pond_upgrades(self):
+        return self.fish_pond_config_repo.get_all()
+
+    def update_fish_pond_upgrades(self, rows):
+        try:
+            upgrades = normalize_aquarium_upgrades(rows, system_label="鱼塘")
+            affected_users = self.fish_pond_config_repo.replace_all(upgrades)
+        except (AquariumUpgradeConfigError, ValueError) as exc:
+            return {"success": False, "message": str(exc)}
+        return {
+            "success": True,
+            "message": (
+                f"已保存 {len(upgrades)} 个鱼塘等级，并同步 {affected_users} 位"
+                "玩家的等级容量；新配置已实时生效。"
+            ),
+            "affected_users": affected_users,
+        }
+
+    def reset_fish_pond_upgrades(self):
+        try:
+            defaults = load_default_fish_pond_upgrades()
+        except (OSError, ValueError) as exc:
+            return {"success": False, "message": f"读取默认配置失败：{exc}"}
+        return self.update_fish_pond_upgrades(defaults)
+
     def refine(self, user_id, instance_id: int, item_type: str):
         """
         精炼鱼竿或饰品，提升其属性。

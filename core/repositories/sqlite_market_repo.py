@@ -1,5 +1,4 @@
 import sqlite3
-import threading
 from typing import Optional, List, Tuple, Any
 from datetime import datetime
 
@@ -17,20 +16,9 @@ class SqliteMarketRepository(AbstractMarketRepository):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.db_manager = DatabaseConnectionManager(db_path)
-        self._local = threading.local()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取一个线程安全的数据库连接。"""
-        conn = getattr(self._local, "connection", None)
-        if conn is None:
-            conn = sqlite3.connect(
-                self.db_path, 
-                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
-            )
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON;")
-            self._local.connection = conn
-        return conn
+    def close_connection(self) -> None:
+        self.db_manager.close_connection()
 
     def _row_to_market_listing(self, row: sqlite3.Row) -> Optional[MarketListing]:
         """将数据库行对象映射到 MarketListing 领域模型。"""
@@ -264,9 +252,9 @@ class SqliteMarketRepository(AbstractMarketRepository):
 
     def add_listing(self, listing: MarketListing) -> None:
         """添加一个市场商品"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            
+        listed_at = listing.listed_at or datetime.now()
+
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 检查表结构，确定哪些字段存在
             cursor.execute("PRAGMA table_info(market)")
             cols = [row[1] for row in cursor.fetchall()]
@@ -285,7 +273,7 @@ class SqliteMarketRepository(AbstractMarketRepository):
                     listing.item_description,
                     listing.quantity,
                     listing.price,
-                    listing.listed_at or datetime.now(),
+                    listed_at,
                     listing.refine_level,
                     listing.is_anonymous,
                     listing.item_instance_id,
@@ -305,7 +293,7 @@ class SqliteMarketRepository(AbstractMarketRepository):
                     listing.item_description,
                     listing.quantity,
                     listing.price,
-                    listing.listed_at or datetime.now(),
+                    listed_at,
                     listing.refine_level,
                     listing.is_anonymous,
                     listing.item_instance_id,
@@ -324,7 +312,7 @@ class SqliteMarketRepository(AbstractMarketRepository):
                     listing.item_description,
                     listing.quantity,
                     listing.price,
-                    listing.listed_at or datetime.now(),
+                    listed_at,
                     listing.refine_level,
                     listing.is_anonymous,
                     listing.expires_at
@@ -342,7 +330,7 @@ class SqliteMarketRepository(AbstractMarketRepository):
                     listing.item_description,
                     listing.quantity,
                     listing.price,
-                    listing.listed_at or datetime.now(),
+                    listed_at,
                     listing.refine_level,
                     listing.item_instance_id,
                     listing.expires_at
@@ -360,23 +348,23 @@ class SqliteMarketRepository(AbstractMarketRepository):
                     listing.item_description,
                     listing.quantity,
                     listing.price,
-                    listing.listed_at or datetime.now(),
+                    listed_at,
                     listing.refine_level,
                     listing.expires_at
                 ))
-            conn.commit()
+
+        self.db_manager.run_in_transaction(_op)
 
     def remove_listing(self, market_id: int) -> None:
         """移除一个市场商品（通常在购买成功或下架后调用）"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute("DELETE FROM market WHERE market_id = ?", (market_id,))
-            conn.commit()
+
+        self.db_manager.run_in_transaction(_op)
 
     def update_listing(self, listing: MarketListing) -> None:
         """更新市场商品信息"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute("""
                 UPDATE market 
                 SET price = ?, refine_level = ?
@@ -386,4 +374,5 @@ class SqliteMarketRepository(AbstractMarketRepository):
                 listing.refine_level,
                 listing.market_id
             ))
-            conn.commit()
+
+        self.db_manager.run_in_transaction(_op)

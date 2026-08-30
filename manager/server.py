@@ -4,7 +4,7 @@ import json
 import os
 import secrets
 import traceback
-from typing import Dict, Any
+from typing import Dict, Any, Mapping
 from datetime import datetime, timedelta
 import csv
 import io
@@ -15,6 +15,17 @@ from quart import (
     Blueprint, current_app, jsonify
 )
 from astrbot.api import logger
+
+from ..core.runtime_settings import (
+    OTHER_SETTING_GROUP_KEYS,
+    RUNTIME_SETTING_GROUPS,
+    apply_runtime_settings,
+    framework_updates,
+    parse_runtime_settings_form,
+    persist_config_updates,
+    setting_group_for_view,
+    settings_groups_for_view,
+)
 
 
 admin_bp = Blueprint(
@@ -198,43 +209,19 @@ def _find_plugin_config_path():
     return candidates[0] if candidates else None
 
 
-def _persist_tax_config(tax_config: Dict[str, Any]):
-    """把税收配置写回持久化配置。
+def _persist_config_updates(updates: Mapping[str, Any]):
+    """持久化任意配置分组，并保证每一层都采用深度合并。
 
     优先走框架自带的 save_config()，它知道该写哪个文件、怎么写；只有拿不到
-    框架配置对象时才退化成手写文件。写入一律是「合并」而不是整段替换，避免
-    抹掉表单不认识的键。
+    可用的框架保存接口时才退化成精确定位本插件配置文件。框架保存失败时会先
+    恢复内存中的 AstrBotConfig，再尝试文件回退，避免留下半保存状态。
     """
-    updated_paths = []
-
-    astrbot_config = current_app.config.get("ASTRBOT_CONFIG")
-    if astrbot_config is not None:
-        try:
-            merged = dict(astrbot_config.get("tax", {}) or {})
-            merged.update(tax_config)
-            astrbot_config["tax"] = merged
-            if hasattr(astrbot_config, "save_config"):
-                astrbot_config.save_config()
-                return ["framework:AstrBotConfig"]
-        except Exception as e:
-            logger.warning(f"通过框架保存税收配置失败，回退到直接写文件: {e}")
-
-    path = _find_plugin_config_path()
-    if not path:
-        return updated_paths
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-        merged = dict(data.get("tax", {}) or {})
-        merged.update(tax_config)
-        data["tax"] = merged
-        path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8-sig",
-        )
-        updated_paths.append(str(path))
-    except Exception as e:
-        logger.warning(f"写入税收配置失败: {path} - {e}")
-    return updated_paths
+    return persist_config_updates(
+        updates,
+        astrbot_config=current_app.config.get("ASTRBOT_CONFIG"),
+        config_path=_find_plugin_config_path(),
+        on_warning=logger.warning,
+    )
 
 
 def _get_csrf_token() -> str:
@@ -288,6 +275,182 @@ async def logout():
 @login_required
 async def index():
     return await render_template("index.html")
+
+
+@admin_bp.route("/other-settings")
+@login_required
+@admin_required
+async def manage_other_settings():
+    game_config = current_app.config["GAME_CONFIG"]
+    aquarium_service = current_app.config["AQUARIUM_SERVICE"]
+    inventory_service = current_app.config["INVENTORY_SERVICE"]
+    return await render_template(
+        "other_settings.html",
+        aquarium_upgrades=aquarium_service.get_aquarium_upgrades(),
+        fish_pond_upgrades=inventory_service.get_fish_pond_upgrades(),
+        settings_groups=settings_groups_for_view(
+            game_config, OTHER_SETTING_GROUP_KEYS
+        ),
+    )
+
+
+@admin_bp.route("/aquarium-upgrades")
+@login_required
+@admin_required
+async def manage_aquarium_upgrades():
+    """兼容旧书签：容量升级已经合并到“其他设置”。"""
+    return redirect(
+        url_for("admin_bp.manage_other_settings") + "#capacity-upgrades"
+    )
+
+
+def _capacity_upgrade_rows(form, system_label: str):
+    field_names = ("level", "capacity", "cost_coins", "cost_premium", "description")
+    values = {name: list(form.getlist(name)) for name in field_names}
+    row_count = len(values["level"])
+    if any(len(values[name]) != row_count for name in field_names):
+        raise ValueError(
+            f"提交的{system_label}档位字段数量不一致，请刷新页面后重试"
+        )
+    return [
+        {name: values[name][index] for name in field_names}
+        for index in range(row_count)
+    ]
+
+
+@admin_bp.route("/aquarium-upgrades/update", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+async def update_aquarium_upgrades():
+    form = await request.form
+    try:
+        rows = _capacity_upgrade_rows(form, "水族箱")
+        aquarium_service = current_app.config["AQUARIUM_SERVICE"]
+        result = aquarium_service.update_aquarium_upgrades(rows)
+        await flash(
+            result["message"],
+            "success" if result["success"] else "danger",
+        )
+    except Exception as exc:
+        logger.error(f"保存水族箱升级配置失败: {exc}", exc_info=True)
+        await flash(f"水族箱升级配置保存失败：{exc}", "danger")
+    return redirect(
+        url_for("admin_bp.manage_other_settings") + "#capacity-upgrades"
+    )
+
+
+@admin_bp.route("/aquarium-upgrades/reset", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+async def reset_aquarium_upgrades():
+    try:
+        aquarium_service = current_app.config["AQUARIUM_SERVICE"]
+        result = aquarium_service.reset_aquarium_upgrades()
+        await flash(
+            result["message"],
+            "success" if result["success"] else "danger",
+        )
+    except Exception as exc:
+        logger.error(f"恢复水族箱默认升级配置失败: {exc}", exc_info=True)
+        await flash(f"恢复水族箱默认配置失败：{exc}", "danger")
+    return redirect(
+        url_for("admin_bp.manage_other_settings") + "#capacity-upgrades"
+    )
+
+
+@admin_bp.route("/fish-pond-upgrades/update", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+async def update_fish_pond_upgrades():
+    form = await request.form
+    try:
+        rows = _capacity_upgrade_rows(form, "鱼塘")
+        inventory_service = current_app.config["INVENTORY_SERVICE"]
+        result = inventory_service.update_fish_pond_upgrades(rows)
+        await flash(
+            result["message"],
+            "success" if result["success"] else "danger",
+        )
+    except Exception as exc:
+        logger.error(f"保存鱼塘升级配置失败: {exc}", exc_info=True)
+        await flash(f"鱼塘升级配置保存失败：{exc}", "danger")
+    return redirect(
+        url_for("admin_bp.manage_other_settings") + "#capacity-upgrades"
+    )
+
+
+@admin_bp.route("/fish-pond-upgrades/reset", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+async def reset_fish_pond_upgrades():
+    try:
+        inventory_service = current_app.config["INVENTORY_SERVICE"]
+        result = inventory_service.reset_fish_pond_upgrades()
+        await flash(
+            result["message"],
+            "success" if result["success"] else "danger",
+        )
+    except Exception as exc:
+        logger.error(f"恢复鱼塘默认升级配置失败: {exc}", exc_info=True)
+        await flash(f"恢复鱼塘默认配置失败：{exc}", "danger")
+    return redirect(
+        url_for("admin_bp.manage_other_settings") + "#capacity-upgrades"
+    )
+
+
+SETTING_REDIRECT_ENDPOINTS = {
+    "gameplay": "admin_bp.manage_other_settings",
+    "resale": "admin_bp.manage_other_settings",
+    "loan": "admin_bp.manage_other_settings",
+    "gambling": "admin_bp.manage_other_settings",
+    "bank": "admin_bp.manage_bank",
+    "exchange": "admin_bp.manage_exchange",
+    "market": "admin_bp.manage_market",
+}
+
+
+@admin_bp.route("/settings/<group_key>/update", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+async def update_runtime_settings(group_key: str):
+    endpoint = SETTING_REDIRECT_ENDPOINTS.get(group_key, "admin_bp.manage_other_settings")
+    try:
+        if group_key not in RUNTIME_SETTING_GROUPS:
+            raise ValueError("未知的设置分组")
+        form = await request.form
+        values = parse_runtime_settings_form(form, group_key)
+        updated_paths = _persist_config_updates(framework_updates(values))
+
+        services = {
+            "fishing_service": current_app.config.get("FISHING_SERVICE"),
+            "loan_service": current_app.config.get("LOAN_SERVICE"),
+            "sicbo_service": current_app.config.get("SICBO_SERVICE"),
+            "blackjack_service": current_app.config.get("BLACKJACK_SERVICE"),
+            "slot_service": current_app.config.get("SLOT_SERVICE"),
+            "exchange_service": current_app.config.get("EXCHANGE_SERVICE"),
+        }
+        apply_runtime_settings(
+            current_app.config["GAME_CONFIG"], values, services
+        )
+
+        title = RUNTIME_SETTING_GROUPS[group_key]["title"]
+        if updated_paths:
+            await flash(f"{title}已保存并实时生效。", "success")
+        else:
+            await flash(
+                f"{title}已在当前进程实时生效，但未找到可写入的持久化配置文件。",
+                "warning",
+            )
+    except Exception as exc:
+        logger.error(f"保存运行时设置 {group_key} 失败: {exc}", exc_info=True)
+        await flash(f"设置保存失败：{exc}", "danger")
+    return redirect(url_for(endpoint))
+
 
 # --- 物品模板管理 (鱼、鱼竿、鱼饵、饰品) ---
 # 使用 item_template_service 来处理所有模板相关的CRUD操作
@@ -1036,6 +1199,9 @@ async def manage_bank():
         fixed_terms=fixed_terms,
         transactions=transactions,
         now=datetime.now(),
+        settings_group=setting_group_for_view(
+            current_app.config["GAME_CONFIG"], "bank"
+        ),
     )
 
 
@@ -1208,7 +1374,7 @@ async def update_tax_settings():
 
         game_config = current_app.config["GAME_CONFIG"]
         game_config["tax"] = tax_config
-        updated_paths = _persist_tax_config(tax_config)
+        updated_paths = _persist_config_updates({"tax": tax_config})
 
         fishing_service = current_app.config.get("FISHING_SERVICE")
         log_repo = current_app.config.get("LOG_REPO")
@@ -1283,7 +1449,10 @@ async def manage_exchange():
             market_status=market_status,
             price_history=price_history,
             user_stats=user_stats,
-            now=datetime.now()
+            now=datetime.now(),
+            settings_group=setting_group_for_view(
+                current_app.config["GAME_CONFIG"], "exchange"
+            ),
         )
     except Exception as e:
         logger.error(f"交易所管理页面出错: {e}")
@@ -1368,7 +1537,10 @@ async def manage_market():
                 "min_price": request.args.get("min_price", ""),
                 "max_price": request.args.get("max_price", ""),
                 "search": request.args.get("search", "")
-            }
+            },
+            settings_group=setting_group_for_view(
+                current_app.config["GAME_CONFIG"], "market"
+            ),
         )
     except Exception as e:
         logger.error(f"市场管理页面出错: {e}")

@@ -1,0 +1,142 @@
+{% extends "layout.html" %}
+
+{% macro capacity_section(system_key, title, icon, upgrades, update_endpoint, reset_endpoint) %}
+<div class="card shadow-sm mb-4 capacity-section" data-system-key="{{ system_key }}" data-system-label="{{ title }}">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-1"><i class="fas {{ icon }}"></i> {{ title }}升级</h5>
+            <div class="small text-muted">配置每一级容量、金币与钻石费用。</div>
+        </div>
+        <form method="post" action="{{ url_for(reset_endpoint) }}" onsubmit="return confirm('确定恢复{{ title }}的版本默认档位吗？现有玩家会保持等级并同步到默认容量。');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-rotate-left"></i> 恢复默认
+            </button>
+        </form>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for(update_endpoint) }}" class="capacity-upgrade-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="table-responsive">
+                <table class="table table-striped align-middle capacity-upgrade-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 90px;">等级</th>
+                            <th>容量</th>
+                            <th>金币费用</th>
+                            <th>钻石费用</th>
+                            <th>说明</th>
+                            <th style="width: 90px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for upgrade in upgrades %}
+                        <tr>
+                            <td>
+                                <span class="badge text-bg-primary level-label">Lv.{{ upgrade.level }}</span>
+                                <input type="hidden" name="level" value="{{ upgrade.level }}">
+                            </td>
+                            <td><input class="form-control" type="number" name="capacity" min="1" step="1" required value="{{ upgrade.capacity }}"></td>
+                            <td><input class="form-control" type="number" name="cost_coins" min="0" step="1" required value="{{ upgrade.cost_coins }}" {% if upgrade.level == 1 %}readonly{% endif %}></td>
+                            <td><input class="form-control" type="number" name="cost_premium" min="0" step="1" required value="{{ upgrade.cost_premium }}" {% if upgrade.level == 1 %}readonly{% endif %}></td>
+                            <td><input class="form-control" type="text" name="description" maxlength="200" value="{{ upgrade.description or '' }}"></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger remove-capacity-level" type="button" title="只能从最高等级开始删除">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <button class="btn btn-outline-primary add-capacity-level" type="button">
+                    <i class="fas fa-plus"></i> 添加最高等级
+                </button>
+                <button class="btn btn-primary" type="submit">
+                    <i class="fas fa-save"></i> 保存{{ title }}档位
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="mb-4">
+    <h2 class="mb-1"><i class="fas fa-sliders"></i> 其他设置</h2>
+    <div class="text-muted">这里只放没有独立管理页的容量与玩法参数；银行、交易所和市场规则在各自管理页维护。</div>
+</div>
+
+<div class="alert alert-info" id="capacity-upgrades">
+    <strong>容量升级实时生效：</strong>保存采用单个数据库事务。已有玩家保持当前等级并同步到该等级的新容量；
+    如果缩容后装不下现有鱼，或删除仍有玩家使用的高等级，系统会拒绝整次保存。
+</div>
+
+{{ capacity_section('fish-pond', '鱼塘', 'fa-water', fish_pond_upgrades, 'admin_bp.update_fish_pond_upgrades', 'admin_bp.reset_fish_pond_upgrades') }}
+{{ capacity_section('aquarium', '水族箱', 'fa-fish-fins', aquarium_upgrades, 'admin_bp.update_aquarium_upgrades', 'admin_bp.reset_aquarium_upgrades') }}
+
+{% for settings_group in settings_groups %}
+    {% include "_runtime_settings_form.html" %}
+{% endfor %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    document.querySelectorAll('.capacity-section').forEach((section) => {
+        const tableBody = section.querySelector('.capacity-upgrade-table tbody');
+        const addButton = section.querySelector('.add-capacity-level');
+        const systemLabel = section.dataset.systemLabel;
+
+        function rows() {
+            return Array.from(tableBody.querySelectorAll('tr'));
+        }
+
+        function refreshRows() {
+            const currentRows = rows();
+            currentRows.forEach((row, index) => {
+                const level = index + 1;
+                row.querySelector('input[name="level"]').value = level;
+                row.querySelector('.level-label').textContent = `Lv.${level}`;
+                const removeButton = row.querySelector('.remove-capacity-level');
+                removeButton.disabled = level === 1 || index !== currentRows.length - 1;
+            });
+            addButton.disabled = currentRows.length >= 100;
+        }
+
+        addButton.addEventListener('click', () => {
+            const currentRows = rows();
+            const previous = currentRows[currentRows.length - 1];
+            const previousCapacity = Number(previous?.querySelector('input[name="capacity"]').value || 0);
+            const nextCapacity = Math.max(previousCapacity + 1, Math.ceil(previousCapacity * 1.5));
+            const nextLevel = currentRows.length + 1;
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <span class="badge text-bg-primary level-label">Lv.${nextLevel}</span>
+                    <input type="hidden" name="level" value="${nextLevel}">
+                </td>
+                <td><input class="form-control" type="number" name="capacity" min="1" step="1" required value="${nextCapacity}"></td>
+                <td><input class="form-control" type="number" name="cost_coins" min="0" step="1" required value="0"></td>
+                <td><input class="form-control" type="number" name="cost_premium" min="0" step="1" required value="0"></td>
+                <td><input class="form-control" type="text" name="description" maxlength="200" value="${systemLabel}升级到${nextCapacity}容量"></td>
+                <td><button class="btn btn-sm btn-outline-danger remove-capacity-level" type="button"><i class="fas fa-trash"></i></button></td>
+            `;
+            tableBody.appendChild(row);
+            refreshRows();
+        });
+
+        tableBody.addEventListener('click', (event) => {
+            const button = event.target.closest('.remove-capacity-level');
+            if (!button || button.disabled) return;
+            button.closest('tr').remove();
+            refreshRows();
+        });
+
+        refreshRows();
+    });
+})();
+</script>
+{% endblock %}

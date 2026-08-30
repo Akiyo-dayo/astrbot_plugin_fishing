@@ -1,7 +1,17 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from ..repositories.abstract_repository import AbstractInventoryRepository, AbstractUserRepository, AbstractItemTemplateRepository
+from ..aquarium_upgrade_config import (
+    AquariumUpgradeConfigError,
+    load_default_aquarium_upgrades,
+    normalize_aquarium_upgrades,
+)
+from ..repositories.abstract_repository import (
+    AbstractAquariumConfigRepository,
+    AbstractInventoryRepository,
+    AbstractItemTemplateRepository,
+    AbstractUserRepository,
+)
 from ..domain.models import User, UserAquariumItem, AquariumUpgrade, Fish
 
 
@@ -10,10 +20,12 @@ class AquariumService:
 
     def __init__(self, inventory_repo: AbstractInventoryRepository, 
                  user_repo: AbstractUserRepository, 
-                 item_template_repo: AbstractItemTemplateRepository):
+                 item_template_repo: AbstractItemTemplateRepository,
+                 aquarium_config_repo: AbstractAquariumConfigRepository):
         self.inventory_repo = inventory_repo
         self.user_repo = user_repo
         self.item_template_repo = item_template_repo
+        self.aquarium_config_repo = aquarium_config_repo
 
     def get_user_aquarium(self, user_id: str) -> Dict[str, Any]:
         """获取用户水族箱信息"""
@@ -123,7 +135,36 @@ class AquariumService:
 
     def get_aquarium_upgrades(self) -> List[AquariumUpgrade]:
         """获取所有水族箱升级配置"""
-        return self.inventory_repo.get_aquarium_upgrades()
+        return self.aquarium_config_repo.get_all()
+
+    def get_initial_capacity(self) -> int:
+        """读取当前等级 1 容量，供新用户注册时使用。"""
+        initial = self.aquarium_config_repo.get_by_level(1)
+        return initial.capacity if initial else 50
+
+    def update_aquarium_upgrades(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """校验并原子保存 Web 后台提交的整套升级档位。"""
+        try:
+            upgrades = normalize_aquarium_upgrades(rows)
+            affected_users = self.aquarium_config_repo.replace_all(upgrades)
+        except (AquariumUpgradeConfigError, ValueError) as exc:
+            return {"success": False, "message": str(exc)}
+        return {
+            "success": True,
+            "message": (
+                f"已保存 {len(upgrades)} 个水族箱等级，"
+                f"并同步 {affected_users} 位玩家的等级容量；新配置已实时生效。"
+            ),
+            "affected_users": affected_users,
+        }
+
+    def reset_aquarium_upgrades(self) -> Dict[str, Any]:
+        """恢复版本化默认档位，并沿用与 Web 保存相同的安全检查。"""
+        try:
+            defaults = load_default_aquarium_upgrades()
+        except (OSError, ValueError) as exc:
+            return {"success": False, "message": f"读取默认配置失败：{exc}"}
+        return self.update_aquarium_upgrades(defaults)
 
     def upgrade_aquarium(self, user_id: str) -> Dict[str, Any]:
         """升级水族箱容量"""
@@ -134,7 +175,7 @@ class AquariumService:
         # 获取当前等级的下一个升级配置
         current_level = self._get_current_aquarium_level(user.aquarium_capacity)
         next_level = current_level + 1
-        upgrade_config = self.inventory_repo.get_aquarium_upgrade_by_level(next_level)
+        upgrade_config = self.aquarium_config_repo.get_by_level(next_level)
 
         if not upgrade_config:
             return {"success": False, "message": "已达到最高等级"}
@@ -199,10 +240,10 @@ class AquariumService:
 
         current_level = self._get_current_aquarium_level(user.aquarium_capacity)
         next_level = current_level + 1
-        next_upgrade = self.inventory_repo.get_aquarium_upgrade_by_level(next_level)
+        next_upgrade = self.aquarium_config_repo.get_by_level(next_level)
 
         upgrades = self.get_aquarium_upgrades()
-        current_upgrade = self.inventory_repo.get_aquarium_upgrade_by_level(current_level)
+        current_upgrade = self.aquarium_config_repo.get_by_level(current_level)
 
         return {
             "success": True,
@@ -221,7 +262,7 @@ class AquariumService:
 
         current_level = self._get_current_aquarium_level(user.aquarium_capacity)
         next_level = current_level + 1
-        next_upgrade = self.inventory_repo.get_aquarium_upgrade_by_level(next_level)
+        next_upgrade = self.aquarium_config_repo.get_by_level(next_level)
 
         if not next_upgrade:
             return {"success": False, "message": "已达到最高等级"}

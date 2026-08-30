@@ -1,0 +1,63 @@
+<div class="card shadow-sm mb-4" id="settings-{{ settings_group.key }}">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-1">{{ settings_group.title }}</h5>
+            <div class="small text-muted">{{ settings_group.description }}</div>
+        </div>
+        <span class="badge text-bg-success">实时生效</span>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('admin_bp.update_runtime_settings', group_key=settings_group.key) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-3">
+                {% for field in settings_group.fields %}
+                <div class="{% if field.type == 'bool' %}col-lg-4 col-md-6{% else %}col-lg-4 col-md-6{% endif %}">
+                    {% if field.type == 'bool' %}
+                    <div class="form-check form-switch border rounded px-3 py-2 h-100">
+                        <input
+                            class="form-check-input ms-0 me-2"
+                            type="checkbox"
+                            role="switch"
+                            id="{{ settings_group.key }}-{{ loop.index }}"
+                            name="{{ field.path }}"
+                            {% if field.value %}checked{% endif %}
+                        >
+                        <label class="form-check-label" for="{{ settings_group.key }}-{{ loop.index }}">
+                            {{ field.label }}
+                        </label>
+                        {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
+                    </div>
+                    {% elif field.type == 'choice' %}
+                    <label class="form-label" for="{{ settings_group.key }}-{{ loop.index }}">{{ field.label }}</label>
+                    <select class="form-select" id="{{ settings_group.key }}-{{ loop.index }}" name="{{ field.path }}" required>
+                        {% for value, label in field.choices %}
+                        <option value="{{ value }}" {% if field.value == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
+                    {% else %}
+                    <label class="form-label" for="{{ settings_group.key }}-{{ loop.index }}">{{ field.label }}</label>
+                    <input
+                        class="form-control"
+                        type="number"
+                        id="{{ settings_group.key }}-{{ loop.index }}"
+                        name="{{ field.path }}"
+                        value="{{ field.value }}"
+                        {% if field.min is not none %}min="{{ field.min }}"{% endif %}
+                        {% if field.max is not none %}max="{{ field.max }}"{% endif %}
+                        step="{{ field.step or ('1' if field.type == 'int' else 'any') }}"
+                        required
+                    >
+                    {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="d-flex justify-content-end mt-3">
+                <button class="btn btn-primary" type="submit">
+                    <i class="fas fa-save"></i> 保存{{ settings_group.title }}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

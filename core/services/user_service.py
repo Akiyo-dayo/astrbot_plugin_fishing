@@ -8,7 +8,8 @@ from ..repositories.abstract_repository import (
     AbstractLogRepository,
     AbstractInventoryRepository,
     AbstractItemTemplateRepository,
-    AbstractAchievementRepository
+    AbstractAchievementRepository,
+    AbstractAquariumConfigRepository,
 )
 from .gacha_service import GachaService
 from ..domain.models import User, TaxRecord
@@ -39,7 +40,9 @@ class UserService:
         item_template_repo: AbstractItemTemplateRepository,
         gacha_service: "GachaService",
         config: Dict[str, Any],
-        achievement_repo: Optional[AbstractAchievementRepository] = None
+        achievement_repo: Optional[AbstractAchievementRepository] = None,
+        aquarium_config_repo: Optional[AbstractAquariumConfigRepository] = None,
+        fish_pond_config_repo: Optional[AbstractAquariumConfigRepository] = None,
     ):
         self.user_repo = user_repo
         self.log_repo = log_repo
@@ -48,8 +51,22 @@ class UserService:
         self.gacha_service = gacha_service
         self.config = config
         self.achievement_repo = achievement_repo
+        self.aquarium_config_repo = aquarium_config_repo
+        self.fish_pond_config_repo = fish_pond_config_repo
         # 由组合根注入，用于总资产榜和转账前的欠税校验。
         self.bank_repo = None
+
+    def _get_initial_aquarium_capacity(self) -> int:
+        if self.aquarium_config_repo is None:
+            return 50
+        initial = self.aquarium_config_repo.get_by_level(1)
+        return initial.capacity if initial else 50
+
+    def _get_initial_fish_pond_capacity(self) -> int:
+        if self.fish_pond_config_repo is None:
+            return 480
+        initial = self.fish_pond_config_repo.get_by_level(1)
+        return initial.capacity if initial else 480
 
     def register(self, user_id: str, nickname: str) -> Dict[str, Any]:
         """
@@ -68,6 +85,8 @@ class UserService:
             user_id=user_id,
             nickname=nickname,
             coins=initial_coins,
+            fish_pond_capacity=self._get_initial_fish_pond_capacity(),
+            aquarium_capacity=self._get_initial_aquarium_capacity(),
             created_at=get_now()
         )
         self.user_repo.add(new_user)
@@ -94,6 +113,8 @@ class UserService:
             user_id=user_id,
             nickname=nickname,
             coins=initial_coins,
+            fish_pond_capacity=self._get_initial_fish_pond_capacity(),
+            aquarium_capacity=self._get_initial_aquarium_capacity(),
             created_at=get_now()
         )
         self.user_repo.add(new_user)

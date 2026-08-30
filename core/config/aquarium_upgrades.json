@@ -1,0 +1,72 @@
+[
+  {
+    "level": 1,
+    "capacity": 50,
+    "cost_coins": 0,
+    "cost_premium": 0,
+    "description": "初始水族箱容量"
+  },
+  {
+    "level": 2,
+    "capacity": 100,
+    "cost_coins": 10000,
+    "cost_premium": 0,
+    "description": "升级到100容量"
+  },
+  {
+    "level": 3,
+    "capacity": 150,
+    "cost_coins": 25000,
+    "cost_premium": 0,
+    "description": "升级到150容量"
+  },
+  {
+    "level": 4,
+    "capacity": 200,
+    "cost_coins": 50000,
+    "cost_premium": 0,
+    "description": "升级到200容量"
+  },
+  {
+    "level": 5,
+    "capacity": 300,
+    "cost_coins": 100000,
+    "cost_premium": 0,
+    "description": "升级到300容量"
+  },
+  {
+    "level": 6,
+    "capacity": 500,
+    "cost_coins": 200000,
+    "cost_premium": 0,
+    "description": "升级到500容量"
+  },
+  {
+    "level": 7,
+    "capacity": 750,
+    "cost_coins": 500000,
+    "cost_premium": 0,
+    "description": "升级到750容量"
+  },
+  {
+    "level": 8,
+    "capacity": 1000,
+    "cost_coins": 1000000,
+    "cost_premium": 0,
+    "description": "升级到1000容量"
+  },
+  {
+    "level": 9,
+    "capacity": 1500,
+    "cost_coins": 2000000,
+    "cost_premium": 0,
+    "description": "升级到1500容量"
+  },
+  {
+    "level": 10,
+    "capacity": 2000,
+    "cost_coins": 5000000,
+    "cost_premium": 0,
+    "description": "升级到2000容量"
+  }
+]

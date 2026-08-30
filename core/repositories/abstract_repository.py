@@ -91,6 +91,24 @@ class AbstractUserRepository(ABC):
     @abstractmethod
     def delete_user(self, user_id: str) -> bool: pass
 
+
+class AbstractAquariumConfigRepository(ABC):
+    """水族箱升级档位配置仓储接口。"""
+
+    @abstractmethod
+    def get_all(self) -> List[AquariumUpgrade]:
+        pass
+
+    @abstractmethod
+    def get_by_level(self, level: int) -> Optional[AquariumUpgrade]:
+        pass
+
+    @abstractmethod
+    def replace_all(self, upgrades: List[Dict[str, Any]]) -> int:
+        """替换全部档位，返回同步容量的用户数。"""
+        pass
+
+
 class AbstractItemTemplateRepository(ABC):
     """物品模板数据仓储接口"""
     # 获取鱼类模板
@@ -239,12 +257,6 @@ class AbstractInventoryRepository(ABC):
     # 智能扣除鱼类：优先从鱼塘扣除，不足时从水族箱扣除
     @abstractmethod
     def deduct_fish_smart(self, user_id: str, fish_id: int, quantity: int, quality_level: int = 0) -> None: pass
-    # 获取所有水族箱升级配置
-    @abstractmethod
-    def get_aquarium_upgrades(self) -> List[AquariumUpgrade]: pass
-    # 根据等级获取水族箱升级配置
-    @abstractmethod
-    def get_aquarium_upgrade_by_level(self, level: int) -> Optional[AquariumUpgrade]: pass
     # 原子卖鱼并增加金币
     @abstractmethod
     def sell_fish_atomic(

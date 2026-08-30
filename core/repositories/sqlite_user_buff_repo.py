@@ -1,9 +1,8 @@
 import sqlite3
-import threading
-import json
 from typing import List, Optional
 from datetime import datetime
 
+from ..database.connection_manager import DatabaseConnectionManager
 from ..domain.models import UserBuff
 from .abstract_repository import AbstractUserBuffRepository
 from ..utils import get_now
@@ -14,17 +13,12 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 class SqliteUserBuffRepository(AbstractUserBuffRepository):
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._local = threading.local()
+        self._conn_mgr = DatabaseConnectionManager(
+            db_path, detect_types=sqlite3.PARSE_DECLTYPES
+        )
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取一个线程安全的数据库连接。"""
-        conn = getattr(self._local, "connection", None)
-        if conn is None:
-            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON;")
-            self._local.connection = conn
-        return conn
+    def close_connection(self) -> None:
+        self._conn_mgr.close_connection()
 
     def _to_domain(self, row: sqlite3.Row) -> UserBuff:
         # 处理 started_at 字段
@@ -48,8 +42,7 @@ class SqliteUserBuffRepository(AbstractUserBuffRepository):
         )
 
     def add(self, buff: UserBuff):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute(
                 """
                 INSERT INTO user_buffs (user_id, buff_type, payload, started_at, expires_at)
@@ -63,12 +56,13 @@ class SqliteUserBuffRepository(AbstractUserBuffRepository):
                     buff.expires_at.strftime(DATETIME_FORMAT) if buff.expires_at else None,
                 ),
             )
-            conn.commit()
+
+        self._conn_mgr.run_in_transaction(_op)
 
     def get_active_by_user_and_type(
         self, user_id: str, buff_type: str
     ) -> Optional[UserBuff]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -84,8 +78,7 @@ class SqliteUserBuffRepository(AbstractUserBuffRepository):
             return self._to_domain(row) if row else None
 
     def update(self, buff: UserBuff):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute(
                 """
                 UPDATE user_buffs
@@ -98,10 +91,11 @@ class SqliteUserBuffRepository(AbstractUserBuffRepository):
                     buff.id,
                 ),
             )
-            conn.commit()
+
+        self._conn_mgr.run_in_transaction(_op)
 
     def get_all_active_by_user(self, user_id: str) -> List[UserBuff]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -115,16 +109,16 @@ class SqliteUserBuffRepository(AbstractUserBuffRepository):
             return [self._to_domain(row) for row in rows]
 
     def delete_expired(self):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute(
                 "DELETE FROM user_buffs WHERE expires_at IS NOT NULL AND expires_at <= ?",
                 (get_now().strftime(DATETIME_FORMAT),),
             )
-            conn.commit()
+
+        self._conn_mgr.run_in_transaction(_op)
 
     def delete(self, buff_id: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             cursor.execute("DELETE FROM user_buffs WHERE id = ?", (buff_id,))
-            conn.commit()
+
+        self._conn_mgr.run_in_transaction(_op)

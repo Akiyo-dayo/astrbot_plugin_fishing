@@ -13,6 +13,10 @@ from astrbot.core.star.filter.permission import PermissionType
 from .core.repositories.sqlite_user_repo import SqliteUserRepository
 from .core.repositories.sqlite_item_template_repo import SqliteItemTemplateRepository
 from .core.repositories.sqlite_inventory_repo import SqliteInventoryRepository
+from .core.repositories.sqlite_aquarium_config_repo import (
+    SqliteAquariumConfigRepository,
+    SqliteFishPondConfigRepository,
+)
 from .core.repositories.sqlite_gacha_repo import SqliteGachaRepository
 from .core.repositories.sqlite_market_repo import SqliteMarketRepository
 from .core.repositories.sqlite_shop_repo import SqliteShopRepository
@@ -210,12 +214,6 @@ class FishingPlugin(Star):
                 "tax_record_retention_days": tax_config.get("tax_record_retention_days", 90),
                 "tax_record_cleanup_batch_size": tax_config.get("tax_record_cleanup_batch_size", 1000),
             },
-            "pond_upgrades": [
-                { "from": 480, "to": 999, "cost": 50000 },
-                { "from": 999, "to": 9999, "cost": 500000 },
-                { "from": 9999, "to": 99999, "cost": 50000000 },
-                { "from": 99999, "to": 999999, "cost": 5000000000 },
-            ],
             "sell_prices": {
                 "rod": { 
                     "1": sell_prices_config.get("by_rarity_1", 100),
@@ -272,6 +270,8 @@ class FishingPlugin(Star):
         self.user_repo = SqliteUserRepository(db_path)
         self.item_template_repo = SqliteItemTemplateRepository(db_path)
         self.inventory_repo = SqliteInventoryRepository(db_path)
+        self.aquarium_config_repo = SqliteAquariumConfigRepository(db_path)
+        self.fish_pond_config_repo = SqliteFishPondConfigRepository(db_path)
         self.gacha_repo = SqliteGachaRepository(db_path)
         self.market_repo = SqliteMarketRepository(db_path)
         self.shop_repo = SqliteShopRepository(db_path)
@@ -295,7 +295,17 @@ class FishingPlugin(Star):
         self.gacha_service = GachaService(self.gacha_repo, self.user_repo, self.inventory_repo, self.item_template_repo,
                                          self.log_repo, self.achievement_repo)
         # UserService 依赖 GachaService，因此在 GachaService 之后实例化
-        self.user_service = UserService(self.user_repo, self.log_repo, self.inventory_repo, self.item_template_repo, self.gacha_service, self.game_config, self.achievement_repo)
+        self.user_service = UserService(
+            self.user_repo,
+            self.log_repo,
+            self.inventory_repo,
+            self.item_template_repo,
+            self.gacha_service,
+            self.game_config,
+            self.achievement_repo,
+            self.aquarium_config_repo,
+            self.fish_pond_config_repo,
+        )
         self.inventory_service = InventoryService(
             self.inventory_repo,
             self.user_repo,
@@ -303,6 +313,7 @@ class FishingPlugin(Star):
             None,  # 先设为None，稍后设置
             self.game_mechanics_service,
             self.game_config,
+            self.fish_pond_config_repo,
         )
         self.shop_service = ShopService(self.item_template_repo, self.inventory_repo, self.user_repo, self.shop_repo, self.game_config)
         # MarketService 依赖 exchange_repo
@@ -328,7 +339,8 @@ class FishingPlugin(Star):
         self.aquarium_service = AquariumService(
             self.inventory_repo,
             self.user_repo,
-            self.item_template_repo
+            self.item_template_repo,
+            self.aquarium_config_repo,
         )
         
         # 初始化交易所服务
@@ -408,7 +420,7 @@ class FishingPlugin(Star):
         self.achievement_service.start_achievement_check_task()
         self.exchange_service.start_daily_price_update_task() # 启动交易所后台任务
         
-        # 启动红包清理任务
+        # 启动低频数据库维护任务
         self._red_packet_cleanup_task = asyncio.create_task(self._red_packet_cleanup_scheduler())
 
         # --- 5. 初始化核心游戏数据 ---
@@ -675,18 +687,29 @@ class FishingPlugin(Star):
             logger.error(f"发送21点公告失败: {e}")
     
     async def _red_packet_cleanup_scheduler(self):
-        """红包清理调度器 - 每小时清理一次过期红包"""
+        """低频维护调度器：每小时清理过期红包和一批历史钓鱼记录。"""
         while True:
             try:
                 await asyncio.sleep(3600)  # 每小时执行一次
+            except asyncio.CancelledError:
+                logger.info("低频数据库维护任务已取消")
+                break
+
+            try:
                 cleaned_count = self.red_packet_service.cleanup_expired_packets()
                 if cleaned_count > 0:
                     logger.info(f"定时清理了 {cleaned_count} 个过期红包")
-            except asyncio.CancelledError:
-                logger.info("红包清理任务已取消")
-                break
             except Exception as e:
-                logger.error(f"红包清理任务出错: {e}")
+                logger.error(f"过期红包清理任务出错: {e}")
+
+            try:
+                cleaned_records = self.log_repo.cleanup_old_fishing_records(
+                    days=30, batch_size=1000
+                )
+                if cleaned_records > 0:
+                    logger.info(f"定时清理了 {cleaned_records} 条过期钓鱼记录")
+            except Exception as e:
+                logger.error(f"过期钓鱼记录清理任务出错: {e}")
 
     def _get_effective_user_id(self, event: AstrMessageEvent):
         """获取在当前上下文中应当作为指令执行者的用户ID。
@@ -1790,6 +1813,28 @@ class FishingPlugin(Star):
             
         if self.web_admin_task:
             self.web_admin_task.cancel()
-        for repo in (self.loan_repo, self.user_repo, self.inventory_repo, self.bank_repo):
-            repo.close_connection()
+        for repo_name in (
+            "user_repo",
+            "item_template_repo",
+            "inventory_repo",
+            "aquarium_config_repo",
+            "fish_pond_config_repo",
+            "gacha_repo",
+            "market_repo",
+            "shop_repo",
+            "log_repo",
+            "achievement_repo",
+            "buff_repo",
+            "exchange_repo",
+            "bank_repo",
+            "red_packet_repo",
+            "loan_repo",
+        ):
+            repo = getattr(self, repo_name, None)
+            close = getattr(repo, "close_connection", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as e:
+                    logger.warning(f"关闭仓储 {repo_name} 的数据库连接失败: {e}")
         logger.info("钓鱼插件已成功终止。")

@@ -1,9 +1,9 @@
 import sqlite3
-import threading
 from typing import Any, Optional, List, Dict
 from datetime import date, datetime, timedelta, timezone
 # 导入抽象基类和领域模型
 from .abstract_repository import AbstractLogRepository
+from ..database.connection_manager import DatabaseConnectionManager
 from ..domain.models import FishingRecord, GachaRecord, WipeBombLog, TaxRecord, UserFishStat
 
 class SqliteLogRepository(AbstractLogRepository):
@@ -11,7 +11,9 @@ class SqliteLogRepository(AbstractLogRepository):
 
     def __init__(self, db_path: str, tax_record_retention_days: int = 90, tax_record_cleanup_batch_size: int = 1000):
         self.db_path = db_path
-        self._local = threading.local()
+        self._conn_mgr = DatabaseConnectionManager(
+            db_path, detect_types=sqlite3.PARSE_DECLTYPES
+        )
         # 定义UTC+8时区
         self.UTC8 = timezone(timedelta(hours=8))
         self.tax_record_retention_days = int(tax_record_retention_days)
@@ -21,15 +23,9 @@ class SqliteLogRepository(AbstractLogRepository):
         self.tax_record_retention_days = int(retention_days)
         self.tax_record_cleanup_batch_size = int(cleanup_batch_size)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取一个线程安全的数据库连接。"""
-        conn = getattr(self._local, "connection", None)
-        if conn is None:
-            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON;")
-            self._local.connection = conn
-        return conn
+    def close_connection(self) -> None:
+        """关闭当前线程由连接管理器持有的连接。"""
+        self._conn_mgr.close_connection()
 
     # --- 私有映射辅助方法 ---
     def _row_to_fishing_record(self, row: sqlite3.Row) -> Optional[FishingRecord]:
@@ -63,8 +59,10 @@ class SqliteLogRepository(AbstractLogRepository):
 
     # --- Fishing Log Methods ---
     def add_fishing_record(self, record: FishingRecord) -> bool:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        record_timestamp = record.timestamp or datetime.now(self.UTC8)
+        stats_timestamp = record.timestamp or datetime.now(self.UTC8)
+
+        def _op(cursor: sqlite3.Cursor) -> bool:
             # 1) 写入本次钓鱼记录
             cursor.execute(
                 """
@@ -81,13 +79,12 @@ class SqliteLogRepository(AbstractLogRepository):
                     record.rod_instance_id,
                     record.accessory_instance_id,
                     record.bait_id,
-                    record.timestamp or datetime.now(self.UTC8),
+                    record_timestamp,
                     1 if record.is_king_size else 0,
                 ),
             )
 
             # 1.5) 更新用户鱼类聚合统计（UPSERT）
-            now_ts = record.timestamp or datetime.now(self.UTC8)
             cursor.execute(
                 """
                 INSERT INTO user_fish_stats (
@@ -103,15 +100,15 @@ class SqliteLogRepository(AbstractLogRepository):
                 (
                     record.user_id,
                     record.fish_id,
-                    now_ts,
-                    now_ts,
+                    stats_timestamp,
+                    stats_timestamp,
                     record.weight,
                     record.weight,
                     record.weight,
                 ),
             )
 
-            # 2) 仅保留当前用户最近10条记录（按时间倒序，时间相同按record_id倒序）
+            # 2) 仅保留当前用户最近50条记录（按时间倒序，时间相同按record_id倒序）
             cursor.execute(
                 """
                 DELETE FROM fishing_records
@@ -126,19 +123,39 @@ class SqliteLogRepository(AbstractLogRepository):
                 (record.user_id, record.user_id),
             )
 
-            # 3) 清理30天前的历史记录（全局）
-            cutoff_time = datetime.now(self.UTC8) - timedelta(days=30)
+            return True
+
+        return self._conn_mgr.run_in_transaction(_op)
+
+    def cleanup_old_fishing_records(
+        self, days: int = 30, batch_size: int = 1000
+    ) -> int:
+        """分批清理过期钓鱼记录，避免在钓鱼结算热事务中做全局扫描。"""
+        days = int(days)
+        batch_size = int(batch_size)
+        if days <= 0:
+            raise ValueError("days 必须大于 0")
+        if batch_size <= 0:
+            raise ValueError("batch_size 必须大于 0")
+
+        cutoff_time = datetime.now(self.UTC8) - timedelta(days=days)
+        def _op(cursor: sqlite3.Cursor) -> int:
             cursor.execute(
                 """
                 DELETE FROM fishing_records
-                WHERE timestamp < ?
+                WHERE record_id IN (
+                    SELECT record_id
+                    FROM fishing_records
+                    WHERE timestamp < ?
+                    ORDER BY timestamp ASC, record_id ASC
+                    LIMIT ?
+                )
                 """,
-                (cutoff_time,),
+                (cutoff_time, batch_size),
             )
+            return max(cursor.rowcount, 0)
 
-            conn.commit()
-            return True
-
+        return self._conn_mgr.run_in_transaction(_op)
 
     def get_unlocked_fish_ids(self, user_id: str) -> Dict[int, datetime]:
         """
@@ -147,7 +164,7 @@ class SqliteLogRepository(AbstractLogRepository):
         返回:
             Dict[int, datetime]: 键为鱼类ID，值为首次捕获时间
         """
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT fish_id, MIN(timestamp) as first_caught_time
@@ -159,7 +176,7 @@ class SqliteLogRepository(AbstractLogRepository):
             return {row["fish_id"]: row["first_caught_time"] for row in rows}
             
     def get_fishing_records(self, user_id: str, limit: int) -> List[FishingRecord]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             # 为了简化返回，这里不连接获取名称，表现层可以按需从ItemTemplateRepository获取
             cursor = conn.cursor()
             cursor.execute("""
@@ -170,8 +187,10 @@ class SqliteLogRepository(AbstractLogRepository):
 
     # --- Gacha Log Methods ---
     def add_gacha_record(self, record: GachaRecord) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        record_timestamp = record.timestamp or datetime.now(self.UTC8)
+        cutoff_time = datetime.now(self.UTC8) - timedelta(days=30)
+
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 1) 写入抽卡记录
             cursor.execute(
                 """
@@ -188,7 +207,7 @@ class SqliteLogRepository(AbstractLogRepository):
                     record.item_name,
                     record.quantity,
                     record.rarity,
-                    record.timestamp or datetime.now(self.UTC8),
+                    record_timestamp,
                 ),
             )
 
@@ -208,7 +227,6 @@ class SqliteLogRepository(AbstractLogRepository):
             )
 
             # 3) 清理30天前的抽卡记录（全局）
-            cutoff_time = datetime.now(self.UTC8) - timedelta(days=30)
             cursor.execute(
                 """
                 DELETE FROM gacha_records
@@ -217,10 +235,10 @@ class SqliteLogRepository(AbstractLogRepository):
                 (cutoff_time,),
             )
 
-            conn.commit()
+        self._conn_mgr.run_in_transaction(_op)
 
     def get_gacha_records(self, user_id: str, limit: int) -> List[GachaRecord]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM gacha_records
@@ -235,9 +253,9 @@ class SqliteLogRepository(AbstractLogRepository):
         # 如果 timestamp 是 naive datetime，附加 UTC+8 时区
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=self.UTC8)
+        cutoff_time = datetime.now(self.UTC8) - timedelta(days=30)
 
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 1) 写入擦弹日志
             cursor.execute(
                 """INSERT INTO wipe_bomb_log
@@ -263,7 +281,6 @@ class SqliteLogRepository(AbstractLogRepository):
             )
 
             # 3) 清理30天前的擦弹日志（全局）
-            cutoff_time = datetime.now(self.UTC8) - timedelta(days=30)
             cursor.execute(
                 """
                 DELETE FROM wipe_bomb_log
@@ -272,7 +289,7 @@ class SqliteLogRepository(AbstractLogRepository):
                 (cutoff_time,),
             )
 
-            conn.commit()
+        self._conn_mgr.run_in_transaction(_op)
 
     # 查询时考虑时区
     def get_wipe_bomb_log_count_today(self, user_id: str) -> int:
@@ -280,7 +297,7 @@ class SqliteLogRepository(AbstractLogRepository):
         today_start = datetime.now(self.UTC8).replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
 
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM wipe_bomb_log
@@ -292,8 +309,9 @@ class SqliteLogRepository(AbstractLogRepository):
 
     # --- Check-in Log Methods ---
     def add_check_in(self, user_id: str, check_in_date: date) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        cutoff_date = (datetime.now(self.UTC8) - timedelta(days=30)).date()
+
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 1) 写入签到记录
             cursor.execute(
                 "INSERT INTO check_ins (user_id, check_in_date) VALUES (?, ?)",
@@ -316,7 +334,6 @@ class SqliteLogRepository(AbstractLogRepository):
             )
 
             # 3) 清理30天前的签到记录（全局）
-            cutoff_date = (datetime.now(self.UTC8) - timedelta(days=30)).date()
             cursor.execute(
                 """
                 DELETE FROM check_ins
@@ -325,10 +342,10 @@ class SqliteLogRepository(AbstractLogRepository):
                 (cutoff_date,),
             )
 
-            conn.commit()
+        self._conn_mgr.run_in_transaction(_op)
 
     def has_checked_in(self, user_id: str, check_in_date: date) -> bool:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM check_ins WHERE user_id = ? AND check_in_date = ?",
@@ -340,19 +357,23 @@ class SqliteLogRepository(AbstractLogRepository):
         """添加一条通用日志"""
         # 由于 fishing_records 表有外键约束，我们使用一个简单的日志表
         # 或者插入到现有的日志表中，避免外键约束问题
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        timestamp = datetime.now()
+
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 使用 wipe_bomb_log 表来记录通用日志，因为它没有外键约束
             cursor.execute("""
                 INSERT INTO wipe_bomb_log (user_id, contribution_amount, reward_multiplier, reward_amount, timestamp)
                 VALUES (?, ?, ?, ?, ?)
-            """, (user_id, 0, 0.0, 0, datetime.now()))
-            conn.commit()
+            """, (user_id, 0, 0.0, 0, timestamp))
+
+        self._conn_mgr.run_in_transaction(_op)
 
     # --- Tax Log Methods ---
     def add_tax_record(self, record: TaxRecord) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        timestamp = record.timestamp or datetime.now(self.UTC8)
+        cleanup_reference_time = datetime.now(self.UTC8)
+
+        def _op(cursor: sqlite3.Cursor) -> None:
             # 1) 写入税收记录
             cursor.execute(
                 """
@@ -367,19 +388,24 @@ class SqliteLogRepository(AbstractLogRepository):
                     record.original_amount,
                     record.balance_after,
                     record.tax_type,
-                    record.timestamp or datetime.now(self.UTC8),
+                    timestamp,
                 ),
             )
 
-            self._cleanup_old_tax_records(cursor)
-            conn.commit()
+            self._cleanup_old_tax_records(cursor, cleanup_reference_time)
 
-    def _cleanup_old_tax_records(self, cursor: sqlite3.Cursor) -> int:
+        self._conn_mgr.run_in_transaction(_op)
+
+    def _cleanup_old_tax_records(
+        self, cursor: sqlite3.Cursor, reference_time: Optional[datetime] = None
+    ) -> int:
         retention_days = max(self.tax_record_retention_days, 0)
         batch_size = max(self.tax_record_cleanup_batch_size, 1)
         if retention_days <= 0:
             return 0
-        cutoff_time = datetime.now(self.UTC8) - timedelta(days=retention_days)
+        cutoff_time = (reference_time or datetime.now(self.UTC8)) - timedelta(
+            days=retention_days
+        )
         cursor.execute("""
             DELETE FROM taxes
             WHERE tax_id IN (
@@ -393,7 +419,7 @@ class SqliteLogRepository(AbstractLogRepository):
         return cursor.rowcount or 0
 
     def get_wipe_bomb_logs(self, user_id: str, limit: int = 10) -> List[WipeBombLog]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM wipe_bomb_log
@@ -402,7 +428,7 @@ class SqliteLogRepository(AbstractLogRepository):
             return [self._row_to_wipe_bomb_log(row) for row in cursor.fetchall()]
 
     def get_tax_records(self, user_id: str, limit: int = 10) -> List[TaxRecord]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM taxes
@@ -435,7 +461,7 @@ class SqliteLogRepository(AbstractLogRepository):
 
         where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(f"""
                 SELECT
@@ -468,7 +494,7 @@ class SqliteLogRepository(AbstractLogRepository):
             params.append(user_id)
         where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(f"""
                 SELECT
@@ -505,7 +531,7 @@ class SqliteLogRepository(AbstractLogRepository):
         from ..utils import get_last_reset_time
         last_reset = get_last_reset_time(reset_hour)
         
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM taxes
@@ -520,7 +546,7 @@ class SqliteLogRepository(AbstractLogRepository):
         from ..utils import get_last_reset_time
         last_reset = get_last_reset_time(reset_hour)
         
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM taxes
@@ -532,7 +558,7 @@ class SqliteLogRepository(AbstractLogRepository):
             return result[0] > 0 if result else False
 
     def get_max_wipe_bomb_multiplier(self, user_id: str) -> float:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT MAX(reward_multiplier) FROM wipe_bomb_log
@@ -542,7 +568,7 @@ class SqliteLogRepository(AbstractLogRepository):
             return result[0] if result and result[0] is not None else 0.0
 
     def get_min_wipe_bomb_multiplier(self, user_id: str) -> Optional[float]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT MIN(reward_multiplier) FROM wipe_bomb_log
@@ -558,7 +584,7 @@ class SqliteLogRepository(AbstractLogRepository):
         today_start_utc8 = datetime.now(self.UTC8).replace(hour=0, minute=0, second=0, microsecond=0)
         today_end_utc8 = today_start_utc8 + timedelta(days=1)
 
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -572,7 +598,7 @@ class SqliteLogRepository(AbstractLogRepository):
 
     # --- 用户鱼类统计（用于图鉴与个人纪录） ---
     def get_user_fish_stats(self, user_id: str) -> List[UserFishStat]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -587,7 +613,7 @@ class SqliteLogRepository(AbstractLogRepository):
             return [self._row_to_user_fish_stat(row) for row in cursor.fetchall()]
 
     def get_user_fish_stat(self, user_id: str, fish_id: int) -> Optional[UserFishStat]:
-        with self._get_connection() as conn:
+        with self._conn_mgr.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """

@@ -274,9 +274,13 @@ class ExchangePriceService:
 
     def _calculate_new_price(self, commodity_id: str, current_price: int) -> int:
         """计算新价格"""
-        # 获取商品配置
+        # 当前配置 schema 把三种商品的波动率放在 exchange.volatility 下。
+        # 兼容旧的 commodities.<id>.volatility 写法，但以后者只作为回退。
         commodity_config = self.config.get("commodities", {}).get(commodity_id, {})
-        volatility = commodity_config.get("volatility", 0.1)
+        volatility = self.config.get("volatility", {}).get(
+            commodity_id,
+            commodity_config.get("volatility", 0.1),
+        )
         max_change_rate = self.config.get("max_change_rate", 0.2)
         
         # 随机调整
@@ -320,6 +324,18 @@ class ExchangePriceService:
 
     def _daily_price_update_loop(self):
         """每日价格更新循环"""
+        try:
+            self._run_daily_price_update_loop()
+        finally:
+            close = getattr(self.exchange_repo, "close_connection", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as e:
+                    logger.warning(f"关闭交易所价格线程数据库连接失败: {e}")
+
+    def _run_daily_price_update_loop(self):
+        """运行价格更新循环；连接释放由线程入口统一保证。"""
         # 启动时立即检查是否需要更新价格
         logger.info("价格更新线程启动，检查当前价格状态...")
         try:

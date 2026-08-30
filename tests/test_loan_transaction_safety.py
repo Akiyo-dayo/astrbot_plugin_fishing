@@ -81,7 +81,10 @@ class LoanTransactionSafetyTests(unittest.TestCase):
                 )
                 """
             )
-            conn.execute("INSERT INTO users (user_id) VALUES ('borrower')")
+            conn.executemany(
+                "INSERT INTO users (user_id) VALUES (?)",
+                (("lender",), ("borrower",)),
+            )
 
     def test_foreign_key_failure_rolls_back_and_releases_write_lock(self):
         with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
@@ -99,11 +102,89 @@ class LoanTransactionSafetyTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 repo.create_loan(loan)
 
-            self.assertFalse(repo._get_connection().in_transaction)
+            self.assertFalse(repo._conn_mgr._get_connection().in_transaction)
             with sqlite3.connect(db_path, timeout=0.1) as other_conn:
                 other_conn.execute("INSERT INTO users (user_id) VALUES ('other')")
 
             repo.close_connection()
+
+    def test_create_and_update_use_replayed_manager_transactions(self):
+        with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            repo = self.loan_repo_module.SqliteLoanRepository(str(db_path))
+            loan = self.loan_models.Loan(
+                lender_id="lender",
+                borrower_id="borrower",
+                principal=100,
+                due_amount=105,
+                status="active",
+            )
+
+            with patch.object(
+                repo._conn_mgr,
+                "run_in_transaction",
+                wraps=repo._conn_mgr.run_in_transaction,
+            ) as run_transaction:
+                loan_id = repo.create_loan(loan)
+                updated = repo.update_loan_repayment(loan_id, 105, "paid")
+
+            self.assertEqual(run_transaction.call_count, 2)
+            self.assertTrue(updated)
+            stored = repo.get_loan_by_id(loan_id)
+            self.assertEqual(stored.repaid_amount, 105)
+            self.assertEqual(stored.status, "paid")
+            self.assertEqual(repo._conn_mgr.detect_types, 0)
+            repo.close_connection()
+
+    def test_nonstandard_timestamp_text_remains_readable(self):
+        with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO loans (
+                        lender_id, borrower_id, principal, interest_rate,
+                        borrowed_at, due_amount, repaid_amount, status,
+                        due_date, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "lender",
+                        "borrower",
+                        100,
+                        0.05,
+                        "not-a-date",
+                        105,
+                        0,
+                        "active",
+                        "2026-08-29T12:34:56+08:00",
+                        "2026-08-29 04:34:56.123456",
+                        "2026-08-29 04:35",
+                    ),
+                )
+                loan_id = cursor.lastrowid
+
+            repo = self.loan_repo_module.SqliteLoanRepository(str(db_path))
+            loan = repo.get_loan_by_id(loan_id)
+
+            self.assertIsNone(loan.borrowed_at)
+            self.assertEqual(loan.due_date.isoformat(), "2026-08-29T12:34:56+08:00")
+            self.assertEqual(loan.created_at.microsecond, 123456)
+            self.assertEqual(loan.updated_at.second, 0)
+            repo.close_connection()
+
+    def test_close_releases_thread_local_manager_connection(self):
+        with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            repo = self.loan_repo_module.SqliteLoanRepository(str(db_path))
+
+            repo.get_all_active_loans()
+            self.assertTrue(hasattr(repo._conn_mgr._local, "connection"))
+            repo.close_connection()
+            self.assertFalse(hasattr(repo._conn_mgr._local, "connection"))
 
     def test_create_loan_rejects_unregistered_lender_before_insert(self):
         loan_repo = _LoanRepositoryStub()

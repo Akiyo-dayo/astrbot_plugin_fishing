@@ -211,6 +211,13 @@ class AchievementService:
 
     def _achievement_check_loop(self):
         """成就检查循环任务。"""
+        try:
+            self._run_achievement_check_loop()
+        finally:
+            self._close_thread_connections()
+
+    def _run_achievement_check_loop(self):
+        """运行成就检查循环；连接释放由线程入口统一保证。"""
         while self.achievement_check_running:
             try:
                 all_user_ids = self.user_repo.get_all_user_ids()
@@ -223,6 +230,23 @@ class AchievementService:
                 logger.error("堆栈信息:", exc_info=True)
                 if self._achievement_stop_event.wait(60):
                     break
+
+    def _close_thread_connections(self) -> None:
+        """关闭成就线程在共享仓储中创建的线程本地连接。"""
+        for name in (
+            "achievement_repo",
+            "user_repo",
+            "inventory_repo",
+            "item_template_repo",
+            "log_repo",
+        ):
+            repo = getattr(self, name, None)
+            close = getattr(repo, "close_connection", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as e:
+                    logger.warning(f"关闭成就线程数据库连接失败: {e}")
 
     def _process_user_achievements(self, user_id: str):
         """处理单个用户的成就检查和发放流程。"""

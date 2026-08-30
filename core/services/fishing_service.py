@@ -69,7 +69,12 @@ class FishingService:
         # 通知目标可配置，默认群聊。可由 config['notifications']['relocation_target'] 覆盖
         notifications_cfg = self.config.get("notifications", {}) if isinstance(self.config, dict) else {}
         self._notification_target = notifications_cfg.get("relocation_target", "group")
-        
+
+    def set_daily_reset_hour(self, hour: int) -> None:
+        """实时调整每日边界，并重置线程观察点以避免重复结算。"""
+        self.daily_reset_hour = int(hour)
+        self.last_reset_time = get_last_reset_time(self.daily_reset_hour)
+        self.last_tax_reset_time = get_last_reset_time(self.daily_reset_hour)
 
     def register_notifier(self, notifier, default_target: Optional[str] = None):
         """
@@ -1203,6 +1208,13 @@ class FishingService:
     def _daily_tax_loop(self):
         """每日税收独立循环任务，由后台线程执行。"""
         try:
+            self._run_daily_tax_loop()
+        finally:
+            self._close_thread_connections()
+
+    def _run_daily_tax_loop(self):
+        """运行税收循环；连接释放由线程入口统一保证。"""
+        try:
             logger.info(f"[税收线程] 线程已进入运行循环，每日重置时间点：{self.daily_reset_hour}点")
             logger.info(f"[税收线程] 上次税收重置时间：{self.last_tax_reset_time}")
         except Exception as e:
@@ -1256,12 +1268,18 @@ class FishingService:
                 if self._tax_stop_event.wait(600):
                     break
         
-        self._close_thread_connections()
         logger.info("[税收线程] 线程循环已退出")
 
     def _close_thread_connections(self) -> None:
         """关闭当前后台线程在常用仓储中创建的线程本地连接。"""
-        for name in ("user_repo", "inventory_repo", "log_repo", "buff_repo"):
+        for name in (
+            "user_repo",
+            "inventory_repo",
+            "item_template_repo",
+            "log_repo",
+            "buff_repo",
+            "bank_repo",
+        ):
             repo = getattr(self, name, None)
             close = getattr(repo, "close_connection", None)
             if callable(close):
@@ -1324,6 +1342,13 @@ class FishingService:
 
     def _auto_fishing_loop(self):
         """自动钓鱼循环任务，由后台线程执行。"""
+        try:
+            self._run_auto_fishing_loop()
+        finally:
+            self._close_thread_connections()
+
+    def _run_auto_fishing_loop(self):
+        """运行自动钓鱼循环；连接释放由线程入口统一保证。"""
         fishing_config = self.config.get("fishing", {})
         cooldown = fishing_config.get("cooldown_seconds", 180)
 
@@ -1367,5 +1392,3 @@ class FishingService:
                         break
                 else:
                     time.sleep(60)
-
-        self._close_thread_connections()

@@ -383,6 +383,31 @@
         "type": "int",
         "default": 10000,
         "description": "稀有度5的出售价格"
+      },
+      "by_rarity_6": {
+        "type": "int",
+        "default": 20000,
+        "description": "稀有度6的出售价格"
+      },
+      "by_rarity_7": {
+        "type": "int",
+        "default": 50000,
+        "description": "稀有度7的出售价格"
+      },
+      "by_rarity_8": {
+        "type": "int",
+        "default": 100000,
+        "description": "稀有度8的出售价格"
+      },
+      "by_rarity_9": {
+        "type": "int",
+        "default": 200000,
+        "description": "稀有度9的出售价格"
+      },
+      "by_rarity_10": {
+        "type": "int",
+        "default": 500000,
+        "description": "稀有度10的出售价格"
       }
     }
   },

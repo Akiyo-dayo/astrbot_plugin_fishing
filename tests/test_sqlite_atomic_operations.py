@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import types
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -121,6 +122,7 @@ class SqliteAtomicOperationTests(_ClosesConnectionsMixin, unittest.TestCase):
                 );
                 CREATE TABLE user_aquarium (
                     user_id TEXT, fish_id INTEGER, quality_level INTEGER, quantity INTEGER,
+                    added_at DATETIME,
                     PRIMARY KEY (user_id, fish_id, quality_level)
                 );
                 CREATE TABLE user_rods (
@@ -198,7 +200,11 @@ class SqliteAtomicOperationTests(_ClosesConnectionsMixin, unittest.TestCase):
             self._create_database(db_path)
             with _sqlite(db_path) as conn:
                 conn.execute("INSERT INTO user_fish_inventory VALUES ('u1', 1, 0, 2)")
-                conn.execute("INSERT INTO user_aquarium VALUES ('u1', 1, 0, 1)")
+                conn.execute(
+                    "INSERT INTO user_aquarium "
+                    "(user_id, fish_id, quality_level, quantity) "
+                    "VALUES ('u1', 1, 0, 1)"
+                )
 
             repo = self._track(self.inventory_module.SqliteInventoryRepository(str(db_path)))
             with self.assertRaises(ValueError):
@@ -208,6 +214,56 @@ class SqliteAtomicOperationTests(_ClosesConnectionsMixin, unittest.TestCase):
                 self.assertEqual(
                     conn.execute("SELECT quantity FROM user_fish_inventory").fetchone()[0],
                     2,
+                )
+                self.assertEqual(
+                    conn.execute("SELECT quantity FROM user_aquarium").fetchone()[0],
+                    1,
+                )
+
+    def test_aquarium_writes_commit_as_complete_operations(self):
+        with self.temp_workspace() as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            repo = self._track(self.inventory_module.SqliteInventoryRepository(str(db_path)))
+
+            repo.add_fish_to_aquarium("u1", 1, 3, quality_level=1)
+            repo.remove_fish_from_aquarium("u1", 1, 1, quality_level=1)
+
+            with _sqlite(db_path) as conn:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT quantity FROM user_aquarium "
+                        "WHERE user_id = 'u1' AND fish_id = 1 AND quality_level = 1"
+                    ).fetchone()[0],
+                    2,
+                )
+
+            repo.clear_aquarium_inventory("u1", rarity=4)
+            with _sqlite(db_path) as conn:
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM user_aquarium").fetchone()[0],
+                    0,
+                )
+
+    def test_smart_deduction_commits_pond_and_aquarium_together(self):
+        with self.temp_workspace() as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            with _sqlite(db_path) as conn:
+                conn.execute("INSERT INTO user_fish_inventory VALUES ('u1', 1, 0, 2)")
+                conn.execute(
+                    "INSERT INTO user_aquarium "
+                    "(user_id, fish_id, quality_level, quantity) "
+                    "VALUES ('u1', 1, 0, 3)"
+                )
+
+            repo = self._track(self.inventory_module.SqliteInventoryRepository(str(db_path)))
+            repo.deduct_fish_smart("u1", 1, 4)
+
+            with _sqlite(db_path) as conn:
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM user_fish_inventory").fetchone()[0],
+                    0,
                 )
                 self.assertEqual(
                     conn.execute("SELECT quantity FROM user_aquarium").fetchone()[0],
@@ -242,6 +298,53 @@ class SqliteAtomicOperationTests(_ClosesConnectionsMixin, unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT rare_fish_caught_today FROM fishing_zones").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM user_fish_inventory").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT total_fishing_count FROM users").fetchone()[0], 0)
+
+    def test_fishing_settlement_does_not_delete_other_users_old_records(self):
+        with self.temp_workspace() as temp_dir:
+            db_path = Path(temp_dir) / "fish.db"
+            self._create_database(db_path)
+            old_timestamp = datetime.now() - timedelta(days=90)
+            with _sqlite(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO fishing_records (
+                        user_id, fish_id, weight, value, timestamp, is_king_size
+                    ) VALUES (?, 1, 1, 1, ?, 0)
+                    """,
+                    ("inactive-user", old_timestamp),
+                )
+
+            repo = self._track(self.inventory_module.SqliteInventoryRepository(str(db_path)))
+            self.assertTrue(
+                repo.settle_fishing_catch(
+                    user_id="u1",
+                    fish_id=1,
+                    total_catches=1,
+                    quality_level=0,
+                    weight=20,
+                    base_value=10,
+                    earned_value=10,
+                    fishing_cost=10,
+                    fish_pond_capacity=10,
+                    timestamp=datetime.now(),
+                    zone_id=1,
+                    is_rare=False,
+                    rod_instance_id=None,
+                    rod_durability=None,
+                    rod_broken=False,
+                    accessory_instance_id=None,
+                    bait_id=None,
+                )
+            )
+
+            with _sqlite(db_path) as conn:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM fishing_records WHERE user_id = ?",
+                        ("inactive-user",),
+                    ).fetchone()[0],
+                    1,
+                )
 
     def test_auto_fishing_toggle_does_not_overwrite_coins(self):
         with self.temp_workspace() as temp_dir:
